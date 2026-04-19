@@ -1,5 +1,4 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import google.generativeai as genai
 import pandas as pd
 import plotly.express as px
@@ -23,25 +22,39 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 인쇄 및 UI 스타일 (나머지 유지, 인쇄 영역만 최적화)
+# 2. 인쇄 전용 CSS (탭 숨김 시 본문 실종 문제 완벽 해결)
 # ==========================================
 st.markdown("""
     <style>
+    /* 화면에서는 인쇄용 영역을 숨깁니다 */
+    .print-area { display: none; }
+
     @media print {
-        [data-testid="stSidebar"], header, footer, .stTabs, button, .stButton {
+        /* 화면의 모든 UI 요소를 숨깁니다 */
+        body * { visibility: hidden; }
+        [data-testid="stSidebar"], header, footer, .stTabs, button, .stChatInput {
             display: none !important;
+        }
+        /* 오직 인쇄 전용 영역만 강제로 노출합니다 */
+        .print-area, .print-area * {
+            visibility: visible !important;
         }
         .print-area {
             display: block !important;
+            position: absolute;
+            left: 0; top: 0;
             width: 100% !important;
-            position: absolute; left: 0; top: 0;
             color: black !important;
             background-color: white !important;
             font-size: 11pt !important;
             line-height: 1.7 !important;
         }
-        .main .block-container { padding: 0 !important; }
         @page { margin: 2cm; }
+    }
+    .print-btn {
+        background-color: #ff4b4b; color: white; padding: 10px 20px;
+        border-radius: 8px; text-align: center; display: inline-block;
+        font-weight: bold; cursor: pointer; border: none; text-decoration: none;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -90,7 +103,7 @@ def process_performance_data(file):
     return i_df, m_df
 
 # ==========================================
-# 4. 메인 UI
+# 4. 메인 UI 및 농어촌 옵션 추가
 # ==========================================
 st.set_page_config(page_title="진학 마스터", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅")
@@ -100,6 +113,10 @@ with st.sidebar:
     target_major = st.text_input("희망 학과", placeholder="예: 간호학과")
     excel_file = st.file_uploader("1. 성적 엑셀", type=["xlsx"])
     pdf_file = st.file_uploader("2. 생기부 PDF", type="pdf")
+    
+    # [신규] 농어촌 전형 체크박스
+    is_rural = st.checkbox("🌾 농어촌 전형 대상자 여부", value=False)
+    
     st.divider()
     st.header("📚 지식 데이터베이스")
     ref_file = st.file_uploader("자료 업로드", type=["pdf", "xlsx"])
@@ -115,27 +132,31 @@ with st.sidebar:
                 sync_knowledge(extracted_text); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 로직 (프롬프트 및 구조 유지)
+# 5. 분석 로직 (농어촌 지침 추가)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('보수적 정밀 분석 리포트 생성 중...'):
+        with st.spinner('농어촌 전형 포함 보수적 리포트 생성 중...'):
             i_df, m_df = process_performance_data(excel_file)
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
+            
+            rural_instruction = "또한 이 학생은 [농어촌 전형] 대상자이므로, PART 2 전략 수립 시 농어촌 전형(정원 외) 지원의 유리함과 합격 가능성을 일반 전형과 비교하여 심층 분석할 것." if is_rural else ""
+            
             prompt = f"""
-            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함. 명사형 종결어미의 개괄식 사용. 인사말 생략.
-            [PART 1: 종합 진단] 성적 분석 및 전형 적합성을 매우 풍성하게 기술.
-            [PART 2: 대입 전략] 대학 라인 제안 및 추천 도서 3권(도서명 - 추천 사유).
-            [PART 3: 심화 탐구 전략] 3개 주제 제안하되, 주제-종적/횡적 근거-탐구 방법(Step 1,2,3) 순서를 엄격히 준수.
-            [PART 4: 면접 대비] 질문-모범 답안-준비 방법 순서를 엄격히 준수.
-            [태그] @PIE [교과:%, 정시:%, 종합:%] @
+            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함. 명사형 종결어미 사용.
+            {rural_instruction}
+            [PART 1: 종합 진단] 성적 분석 및 전형 적합성 기술.
+            [PART 2: 대입 전략] 농어촌 포함 대학 라인 제안 및 추천 도서.
+            [PART 3: 심화 탐구] 주제-근거-방법(Step 1-2-3).
+            [PART 4: 면접 대비] 질문-답안-준비 방법.
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 누적지식({k_base[:10000]})
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
+    # 탭 결과 렌더링
     tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
     res = st.session_state.analysis_result
     main_content = "[PART 1:" + res.split("[PART 1:")[1] if "[PART 1:" in res else res
@@ -146,22 +167,19 @@ if excel_file and pdf_file and target_major:
         c1, c2, c3 = st.columns(3)
         if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
         if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
-        
         pie_raw = re.search(r'@PIE \[(.*?)\] @', res)
         if pie_raw:
             try:
                 p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in [it.split(':') for it in pie_raw.group(1).split(',')]]
-                c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형 비중"), use_container_width=True)
+                c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
             except: pass
-        
         st.markdown(clean_res.split("[PART 3:")[0].replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
 
     with tab2:
         if "[PART 3:" in clean_res:
             p3_raw = clean_res.split("[PART 3:")[1].split("[PART 4:")[0]
-            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
+            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구")
             st.markdown(p3_raw.replace("주제:", "#### 📍 주제:").replace("종적/횡적 근거:", "🔍 **종적/횡적 근거:**").replace("탐구 방법:", "🛠️ **탐구 방법:**"))
-            
             if "[PART 4:" in clean_res:
                 st.markdown("---")
                 st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
@@ -170,7 +188,7 @@ if excel_file and pdf_file and target_major:
     with tab3:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        if p_chat := st.chat_input("추가 질문..."):
+        if p_chat := st.chat_input("추가 상담 질문..."):
             st.session_state.chat_history.append({"role": "user", "content": p_chat})
             with st.chat_message("user"): st.markdown(p_chat)
             with st.chat_message("assistant"):
@@ -179,16 +197,15 @@ if excel_file and pdf_file and target_major:
 
     with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
-        
-        # [수정] 인쇄 버튼 로직: window.parent.print()를 사용하여 브라우저 전체 인쇄 트리거
-        if st.button("📄 PDF 인쇄창 열기 (클릭)"):
-            components.html("<script>window.parent.print();</script>", height=0)
-        
-        st.markdown(f"""
-        <div class="print-area">
-            <h1 style="text-align: center;">대입 컨설팅 결과 리포트</h1>
-            <p style="text-align: right;">지원학과: {target_major}</p>
-            <hr>
-            <div style="white-space: pre-wrap;">{clean_res}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown('<button class="print-btn" onclick="window.print()">📄 PDF 인쇄창 열기 (클릭)</button>', unsafe_allow_html=True)
+        st.info("💡 인쇄 시 백지가 나온다면, 미리보기 창에서 리포트 내용이 보일 때까지 잠시만 기다려주세요.")
+
+    # [핵심] 탭 외부, 페이지 최하단에 인쇄 전용 영역 배치 (탭 숨김에 영향받지 않음)
+    st.markdown(f"""
+    <div class="print-area">
+        <h1 style="text-align: center;">대입 컨설팅 결과 리포트 {"(농어촌 대상)" if is_rural else ""}</h1>
+        <p style="text-align: right;">지원학과: {target_major}</p>
+        <hr>
+        <div style="white-space: pre-wrap; font-family: sans-serif;">{clean_res}</div>
+    </div>
+    """, unsafe_allow_html=True)
