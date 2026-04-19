@@ -202,7 +202,25 @@ if excel_file and pdf_file and target_major:
                 ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
-    with tab4:
+  with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
-        st.button("📄 PDF 인쇄창 열기", on_click=lambda: st.write('<script>window.print();</script>', unsafe_allow_html=True))
-        st.markdown(f'<div class="print-container"><h1 style="text-align: center;">입시 컨설팅 결과 보고서</h1><p style="text-align: right;">학과: {target_major}</p><hr>{clean_res.replace("\n", "<br>")}</div>', unsafe_allow_html=True)
+        
+        # 버튼처럼 보이는 HTML/JS 링크 (이게 가장 확실합니다)
+        st.markdown("""
+            <a href="javascript:window.print()" style="text-decoration:none;">
+                <div style="background-color:#ff4b4b; color:white; padding:10px 20px; border-radius:10px; text-align:center; cursor:pointer; font-weight:bold;">
+                    📄 PDF 인쇄창 열기 (클릭)
+                </div>
+            </a>
+            <br>
+            """, unsafe_allow_html=True)
+        
+        # 인쇄 영역
+        st.markdown(f"""
+        <div class="print-container">
+            <h1 style="text-align: center;">입시 컨설팅 결과 보고서</h1>
+            <p style="text-align: right;">학과: {target_major}</p>
+            <hr>
+            {clean_res.replace("\n", "<br>")}
+        </div>
+        """, unsafe_allow_html=True)
