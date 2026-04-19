@@ -22,7 +22,33 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 구글 시트 동기화 함수
+# 2. PDF 출력을 위한 스타일 설정 (CSS)
+# ==========================================
+st.markdown("""
+    <style>
+    @media print {
+        /* 인쇄 시 사이드바, 버튼, 탭 메뉴 등 불필요한 요소 숨김 */
+        [data-testid="stSidebar"], .stTabs, button, header, footer {
+            display: none !important;
+        }
+        /* 인쇄 영역 강제 설정 */
+        .print-container {
+            display: block !important;
+            width: 100% !important;
+            padding: 20px !important;
+            font-size: 12pt !important;
+            line-height: 1.6 !important;
+        }
+        /* 페이지 여백 설정 */
+        @page {
+            margin: 2cm;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ==========================================
+# 3. 구글 시트 동기화 함수
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -33,7 +59,7 @@ def sync_knowledge(new_content=None):
     except: return ""
 
 # ==========================================
-# 3. 데이터 가공 (성적)
+# 4. 데이터 가공 (성적)
 # ==========================================
 def process_performance_data(file):
     xls = pd.ExcelFile(file)
@@ -73,10 +99,10 @@ def process_performance_data(file):
     return i_df, m_df
 
 # ==========================================
-# 4. 메인 UI
+# 5. 메인 UI
 # ==========================================
-st.set_page_config(page_title="진학 마스터 V43", layout="wide")
-st.title("🎓 고3 대입 전문 컨설팅 (V43 - 보수적 진단 강화형)")
+st.set_page_config(page_title="진학 마스터", layout="wide")
+st.title("🎓 고3 대입 전문 컨설팅")
 
 with st.sidebar:
     st.header("📋 학생 데이터 입력")
@@ -99,7 +125,7 @@ with st.sidebar:
                 sync_knowledge(extracted_text); st.success("저장 완료!")
 
 # ==========================================
-# 5. 보수적 분석 프롬프트 (최종 튜닝)
+# 6. 보수적 분석 로직 유지
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -179,4 +205,16 @@ if excel_file and pdf_file and target_major:
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
     with tab4:
-        st.markdown("# 📋 상담 요약 리포트"); st.info(clean_res)
+        st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
+        # 인쇄 버튼 (클릭 시 브라우저 인쇄 창 실행)
+        st.button("📄 PDF로 출력하기 (인쇄 창 열기)", on_click=lambda: st.write('<script>window.print();</script>', unsafe_allow_html=True))
+        
+        # 인쇄 시 깨끗하게 나올 영역 지정
+        st.markdown(f"""
+        <div class="print-container">
+            <h1 style="text-align: center;">입시 컨설팅 결과 보고서</h1>
+            <p style="text-align: right;">지원 학과: {target_major}</p>
+            <hr>
+            {clean_res.replace("\n", "<br>")}
+        </div>
+        """, unsafe_allow_html=True)
