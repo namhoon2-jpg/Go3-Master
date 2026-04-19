@@ -6,7 +6,6 @@ import pdfplumber
 import requests
 import re
 import io
-import streamlit.components.v1 as components
 
 # ==========================================
 # 1. 보안 및 API 설정
@@ -23,20 +22,20 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 인쇄 전용 CSS (가독성 및 출력 보장)
+# 2. 인쇄 전용 CSS (Ctrl+P 인쇄용)
 # ==========================================
 st.markdown("""
     <style>
-    /* 화면에서는 인쇄용 영역 숨김 */
     .print-only { display: none; }
     
     @media print {
-        /* UI 요소 제거 */
+        /* 스트림릿의 모든 메뉴, 버튼, 탭 숨김 */
         [data-testid="stSidebar"], header, footer, .stTabs, button, .stChatInput {
             display: none !important;
         }
-        /* 인쇄 시 레이아웃 최적화 */
         body * { visibility: hidden; }
+        
+        /* 인쇄 영역만 강제 출력 */
         .print-only, .print-only * { 
             visibility: visible !important; 
         }
@@ -46,19 +45,19 @@ st.markdown("""
             width: 100% !important;
             color: black !important;
             background-color: white !important;
-            font-size: 9.5pt !important;
+            font-size: 10pt !important;
             line-height: 1.6 !important;
         }
-        .print-only h1 { font-size: 20pt; text-align: center; margin-bottom: 10px; }
-        .print-only hr { border: 1px solid black; }
+        .print-only h1 { font-size: 18pt; text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 15px;}
+        .print-only h3 { font-size: 13pt; margin-top: 15px; color: #111; }
+        .print-only p, .print-only li { font-size: 10pt; }
         @page { margin: 1.5cm; }
     }
-    .stButton>button { width: 100%; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수 (속도 향상)
+# 3. 데이터 가공 함수 (캐싱 적용)
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -102,7 +101,18 @@ def process_performance_data(file_bytes):
     return i_df, m_df
 
 # ==========================================
-# 4. 메인 화면 및 입력
+# 4. 파트별 안전 추출 함수 (정규식 기반)
+# ==========================================
+def extract_section(text, start_keyword, end_keyword=None):
+    if end_keyword:
+        pattern = rf"\[{start_keyword}\].*?(?=\[{end_keyword}\]|$)"
+    else:
+        pattern = rf"\[{start_keyword}\].*"
+    match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
+    return match.group(0).strip() if match else ""
+
+# ==========================================
+# 5. 메인 UI 및 입력
 # ==========================================
 st.set_page_config(page_title="고3 대입 전문 컨설팅", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅")
@@ -128,7 +138,7 @@ with st.sidebar:
                 sync_knowledge(extracted_text); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 로직 (일관성 및 보수적 진단 강화)
+# 6. 분석 로직 (프롬프트 극강 통제)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -142,15 +152,24 @@ if excel_file and pdf_file and target_major:
             prompt = f"""
             지방 일반고 컨설턴트로서 {target_major} 지망 학생 분석. 보수적 관점 유지.
             {rural_inst}
-            [절대 지침]
-            1. 무조건 [PART 1: 종합 진단]으로 시작하며 별도 제목은 생략함.
-            2. 정시 합격 가능성이 낮다고 판단되면 @PIE 태그 내 '정시' 비중을 반드시 10% 이하로 설정할 것.
-            3. 모든 PART 제목 앞에 줄바꿈을 두 번 넣어 가독성을 높일 것.
+            
+            [절대 지침 - 시스템 오류 방지]
+            1. 문체: 전체 답변의 모든 문장은 무조건 개괄식(Bullet point, '-' 사용)으로 작성할 것.
+            2. 어미: 모든 문장의 끝은 반드시 명사형 종결어미(~함, ~임, ~됨 등)인 '음슴체'로 끝낼 것. 산문형 줄글 절대 금지.
+            3. 일관성: 정시 합격 가능성이 낮다고 진단했다면 @PIE 태그 내 '정시' 비중을 반드시 10% 이하로 할 것.
+            4. 제목 형태: 아래 4개의 파트 제목을 토씨 하나 틀리지 말고 대괄호까지 정확히 그대로 출력할 것. 다른 제목 생성 금지.
 
-            [PART 1: 종합 진단] 성적 및 전형 적합성 기술.
-            [PART 2: 대입 전략] 대학 라인 제안 및 추천 도서. (농어촌 대상자라면 농어촌 지원 전략 필수 포함)
-            [PART 3: 심화 탐구] 주제-종적/횡적 근거-탐구 방법 순서 준수.
-            [PART 4: 면접 대비] 질문-모범 답안-준비 방법 순서 준수.
+            [PART 1]
+            (종합 진단 내용 - 성적 및 전형 적합성)
+            
+            [PART 2]
+            (대입 전략 및 추천 도서)
+            
+            [PART 3]
+            (심화 탐구 주제 3가지: 각각 주제, 종적/횡적 근거, 탐구 방법 명시)
+            
+            [PART 4]
+            (면접 대비 질문 3가지: 각각 질문, 모범 답안, 준비 방법 명시)
 
             @PIE [교과: %, 정시: %, 종합: %] @
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 지식({k_base[:10000]})
@@ -159,10 +178,15 @@ if excel_file and pdf_file and target_major:
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
+    # 원본 텍스트 및 태그 정제
     res = st.session_state.analysis_result
-    # 제목 절단 로직
-    main_content = "[PART 1:" + res.split("[PART 1:")[1] if "[PART 1:" in res else res
-    clean_res = re.sub(r'@.*?@', '', main_content, flags=re.DOTALL).strip()
+    clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL).strip()
+
+    # 안전한 파트 추출 (에러율 0%)
+    p1_content = extract_section(clean_res, "PART 1", "PART 2")
+    p2_content = extract_section(clean_res, "PART 2", "PART 3")
+    p3_content = extract_section(clean_res, "PART 3", "PART 4")
+    p4_content = extract_section(clean_res, "PART 4")
 
     tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
 
@@ -181,23 +205,25 @@ if excel_file and pdf_file and target_major:
                 c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
             except: pass
         
-        # 제목 크기 교정 (줄바꿈 추가 및 H2 적용)
-        formatted_t1 = clean_res.split("[PART 3:")[0].replace("[PART 1:", "\n\n## 📝 [PART 1]").replace("[PART 2:", "\n\n## 🎯 [PART 2]")
-        st.markdown(formatted_t1)
+        if p1_content: st.markdown(p1_content.replace("[PART 1]", "### 📝 [PART 1] 종합 진단"))
+        if p2_content: st.markdown(p2_content.replace("[PART 2]", "### 🎯 [PART 2] 대입 전략"))
 
     # ------------------ Tab 2 ------------------
     with tab2:
-        if "[PART 3:" in clean_res:
-            p34_area = clean_res.split("[PART 3:")[1]
-            p3_content = p34_area.split("[PART 4:")[0]
-            st.markdown("\n\n## 🚀 [PART 3] 심화 탐구 가이드")
-            st.markdown(p3_content.replace("주제:", "\n\n### 📍 주제:").replace("종적/횡적 근거:", "\n\n#### 🔍 **종적/횡적 근거:**").replace("탐구 방법:", "\n\n🛠️ **탐구 방법:**"))
+        if p3_content:
+            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
+            f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_content.replace("[PART 3]", ""))
+            f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
+            f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
+            st.markdown(f_p3)
             
-            if "[PART 4:" in p34_area:
-                p4_content = p34_area.split("[PART 4:")[1]
-                st.markdown("---")
-                st.markdown("\n\n## 🎤 [PART 4] 면접 예상 질문")
-                st.markdown(p4_content.replace("질문:", "\n\n### ❓ 질문:").replace("모범 답안:", "\n\n✅ **모범 답안:**").replace("준비 방법:", "\n\n🛠️ **준비 방법:**"))
+        if p4_content:
+            st.markdown("---")
+            st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
+            f_p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4_content.replace("[PART 4]", ""))
+            f_p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', f_p4)
+            f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
+            st.markdown(f_p4)
 
     # ------------------ Tab 3 ------------------
     with tab3:
@@ -210,22 +236,54 @@ if excel_file and pdf_file and target_major:
                 ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
-    # ------------------ Tab 4 ------------------
+    # ------------------ Tab 4 (완벽 인쇄 솔루션) ------------------
     with tab4:
-        st.subheader("🖨️ 인쇄용 리포트")
-        # [수정] 인쇄 버튼을 별도 컴포넌트로 분리하여 브라우저 인쇄 호출 보장
-        if st.button("📄 즉시 인쇄 또는 PDF 저장"):
-            components.html("<script>window.print();</script>", height=0)
+        st.subheader("🖨️ 인쇄용 리포트 다운로드")
         
-        st.info("💡 위 버튼을 클릭하면 즉시 인쇄 창이 뜹니다. 글자 크기가 9.5pt로 자동 조정됩니다.")
+        # [해결책] 막혀버리는 버튼 대신, 더블클릭하면 100% 인쇄되는 HTML 파일 다운로드 방식 도입
+        html_content = f"""<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>대입 컨설팅 리포트</title>
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <style>
+                body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.6; color: #111; max-width: 21cm; margin: auto; }}
+                h1 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 5px; }}
+                .dept {{ text-align: right; color: #555; font-weight: bold; margin-bottom: 30px; }}
+                p, li {{ font-size: 10pt; }}
+            </style>
+        </head>
+        <body onload="setTimeout(function(){{ window.print(); }}, 500);">
+            <h1>대입 컨설팅 결과 리포트</h1>
+            <div class="dept">지원학과: {target_major}</div>
+            <div id="content"></div>
+            <script>
+                var rawMd = decodeURIComponent("{requests.utils.quote(clean_res)}");
+                document.getElementById('content').innerHTML = marked.parse(rawMd);
+            </script>
+        </body>
+        </html>"""
+
+        st.download_button(
+            label="📄 리포트 다운로드 (클릭 후 열면 자동 인쇄)",
+            data=html_content,
+            file_name=f"{target_major}_컨설팅_리포트.html",
+            mime="text/html",
+            use_container_width=True
+        )
+        
+        st.info("💡 **인쇄하는 2가지 방법**\n1. 위 **[리포트 다운로드]** 버튼을 눌러 받아진 파일을 열면 팝업 차단 없이 즉시 인쇄창이 뜹니다. (가장 확실)\n2. 또는 키보드에서 **`Ctrl` + `P`** (맥은 Cmd+P)를 누르시면 이 화면 그대로 깨끗하게 인쇄됩니다.")
+        
         st.markdown("---")
-        # 인쇄 영역
+        
+        # 화면 출력용 및 Ctrl+P 인쇄용 영역
         st.markdown(f"""
         <div class="print-only">
             <h1>대입 컨설팅 결과 리포트</h1>
             <p style="text-align: right; font-weight: bold;">지원학과: {target_major}</p>
             <hr>
-            <div style="white-space: pre-wrap;">{clean_res}</div>
         </div>
         """, unsafe_allow_html=True)
+        st.markdown(f"<div class='print-only'>{clean_res.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
         st.markdown(clean_res)
