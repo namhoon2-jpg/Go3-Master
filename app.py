@@ -6,6 +6,7 @@ import pdfplumber
 import requests
 import re
 import io
+import urllib.parse
 
 # ==========================================
 # 1. 보안 및 API 설정
@@ -22,20 +23,18 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 인쇄 전용 CSS (Ctrl+P 인쇄용)
+# 2. 인쇄 전용 CSS (Ctrl+P 및 다운로드용)
 # ==========================================
 st.markdown("""
     <style>
     .print-only { display: none; }
     
     @media print {
-        /* 스트림릿의 모든 메뉴, 버튼, 탭 숨김 */
         [data-testid="stSidebar"], header, footer, .stTabs, button, .stChatInput {
             display: none !important;
         }
         body * { visibility: hidden; }
         
-        /* 인쇄 영역만 강제 출력 */
         .print-only, .print-only * { 
             visibility: visible !important; 
         }
@@ -49,7 +48,8 @@ st.markdown("""
             line-height: 1.6 !important;
         }
         .print-only h1 { font-size: 18pt; text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 15px;}
-        .print-only h3 { font-size: 13pt; margin-top: 15px; color: #111; }
+        .print-only h3 { font-size: 14pt; margin-top: 20px; color: #111; }
+        .print-only h4 { font-size: 11pt; margin-top: 10px; color: #333; }
         .print-only p, .print-only li { font-size: 10pt; }
         @page { margin: 1.5cm; }
     }
@@ -57,7 +57,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수 (캐싱 적용)
+# 3. 데이터 가공 함수
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -100,9 +100,7 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
-# ==========================================
-# 4. 파트별 안전 추출 함수 (정규식 기반)
-# ==========================================
+# 안전 추출 함수
 def extract_section(text, start_keyword, end_keyword=None):
     if end_keyword:
         pattern = rf"\[{start_keyword}\].*?(?=\[{end_keyword}\]|$)"
@@ -112,7 +110,7 @@ def extract_section(text, start_keyword, end_keyword=None):
     return match.group(0).strip() if match else ""
 
 # ==========================================
-# 5. 메인 UI 및 입력
+# 4. 메인 UI
 # ==========================================
 st.set_page_config(page_title="고3 대입 전문 컨설팅", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅")
@@ -138,7 +136,7 @@ with st.sidebar:
                 sync_knowledge(extracted_text); st.success("동기화 완료!")
 
 # ==========================================
-# 6. 분석 로직 (프롬프트 극강 통제)
+# 5. 분석 로직 (프롬프트 엄격 통제)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -147,29 +145,26 @@ if excel_file and pdf_file and target_major:
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
-            rural_inst = "이 학생은 [농어촌 전형] 대상자이므로, 농어촌 전형 지원 전략을 비중 있게 다룰 것." if is_rural else ""
+            rural_inst = "이 학생은 [농어촌 전형] 대상자이므로 대입 전략에 포함할 것." if is_rural else ""
             
+            # [수정] 면접 질문 제약 및 깔끔한 출력 유도
             prompt = f"""
             지방 일반고 컨설턴트로서 {target_major} 지망 학생 분석. 보수적 관점 유지.
             {rural_inst}
             
-            [절대 지침 - 시스템 오류 방지]
-            1. 문체: 전체 답변의 모든 문장은 무조건 개괄식(Bullet point, '-' 사용)으로 작성할 것.
-            2. 어미: 모든 문장의 끝은 반드시 명사형 종결어미(~함, ~임, ~됨 등)인 '음슴체'로 끝낼 것. 산문형 줄글 절대 금지.
-            3. 일관성: 정시 합격 가능성이 낮다고 진단했다면 @PIE 태그 내 '정시' 비중을 반드시 10% 이하로 할 것.
-            4. 제목 형태: 아래 4개의 파트 제목을 토씨 하나 틀리지 말고 대괄호까지 정확히 그대로 출력할 것. 다른 제목 생성 금지.
-
+            [절대 지침]
+            1. 모든 문장은 개괄식('-' 사용) 및 음슴체(~함, ~임) 사용.
+            2. 정시 합격 확률이 낮으면 @PIE 태그 내 '정시' 비중을 반드시 10% 이하로 할 것.
+            3. 면접 질문(PART 4)에는 농어촌 전형이나 학교 환경에 대한 질문을 절대 넣지 말 것. 오직 '지원 학과 관련 교과 세특 및 탐구 활동'에 관한 전공 적합성 질문만 3개 생성할 것.
+            
             [PART 1]
-            (종합 진단 내용 - 성적 및 전형 적합성)
-            
+            성적 및 전형 적합성
             [PART 2]
-            (대입 전략 및 추천 도서)
-            
+            대입 전략 및 추천 도서
             [PART 3]
-            (심화 탐구 주제 3가지: 각각 주제, 종적/횡적 근거, 탐구 방법 명시)
-            
+            (반드시 "주제:", "종적/횡적 근거:", "탐구 방법:" 키워드 사용) 3가지
             [PART 4]
-            (면접 대비 질문 3가지: 각각 질문, 모범 답안, 준비 방법 명시)
+            (반드시 "질문:", "모범 답안:", "준비 방법:" 키워드 사용) 3가지
 
             @PIE [교과: %, 정시: %, 종합: %] @
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 지식({k_base[:10000]})
@@ -178,15 +173,46 @@ if excel_file and pdf_file and target_major:
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # 원본 텍스트 및 태그 정제
+    # ----------------------------------------------------
+    # [수술 1] AI가 만든 이상한 괄호 문구와 제목줄을 파이썬으로 강제 삭제
+    # ----------------------------------------------------
     res = st.session_state.analysis_result
     clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL).strip()
 
-    # 안전한 파트 추출 (에러율 0%)
     p1_content = extract_section(clean_res, "PART 1", "PART 2")
     p2_content = extract_section(clean_res, "PART 2", "PART 3")
     p3_content = extract_section(clean_res, "PART 3", "PART 4")
     p4_content = extract_section(clean_res, "PART 4")
+
+    # 첫 줄([PART 1] 등)에 AI가 붙인 이상한 설명글 무조건 날려버리기
+    p1_body = re.sub(r'^\s*\[PART 1\].*?(?=\n|$)', '', p1_content, flags=re.IGNORECASE).strip()
+    p2_body = re.sub(r'^\s*\[PART 2\].*?(?=\n|$)', '', p2_content, flags=re.IGNORECASE).strip()
+    p3_body = re.sub(r'^\s*\[PART 3\].*?(?=\n|$)', '', p3_content, flags=re.IGNORECASE).strip()
+    p4_body = re.sub(r'^\s*\[PART 4\].*?(?=\n|$)', '', p4_content, flags=re.IGNORECASE).strip()
+
+    # 파트 3, 4 이모지 포맷팅
+    f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_body)
+    f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
+    f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
+
+    f_p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4_body)
+    f_p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', f_p4)
+    f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
+
+    # 파이썬이 완벽하게 통제한 최종 리포트 텍스트 (다운로드/인쇄용)
+    final_report_markdown = f"""
+### 📝 [PART 1] 종합 진단
+{p1_body}
+
+### 🎯 [PART 2] 대입 전략
+{p2_body}
+
+### 🚀 [PART 3] 심화 탐구 가이드
+{f_p3}
+
+### 🎤 [PART 4] 면접 예상 질문
+{f_p4}
+"""
 
     tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
 
@@ -205,24 +231,17 @@ if excel_file and pdf_file and target_major:
                 c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
             except: pass
         
-        if p1_content: st.markdown(p1_content.replace("[PART 1]", "### 📝 [PART 1] 종합 진단"))
-        if p2_content: st.markdown(p2_content.replace("[PART 2]", "### 🎯 [PART 2] 대입 전략"))
+        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1_body}")
+        st.markdown(f"### 🎯 [PART 2] 대입 전략\n\n{p2_body}")
 
     # ------------------ Tab 2 ------------------
     with tab2:
-        if p3_content:
+        if p3_body:
             st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
-            f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_content.replace("[PART 3]", ""))
-            f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
-            f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
             st.markdown(f_p3)
-            
-        if p4_content:
+        if p4_body:
             st.markdown("---")
             st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
-            f_p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4_content.replace("[PART 4]", ""))
-            f_p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', f_p4)
-            f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
             st.markdown(f_p4)
 
     # ------------------ Tab 3 ------------------
@@ -238,19 +257,20 @@ if excel_file and pdf_file and target_major:
 
     # ------------------ Tab 4 (완벽 인쇄 솔루션) ------------------
     with tab4:
-        st.subheader("🖨️ 인쇄용 리포트 다운로드")
+        st.subheader("🖨️ 인쇄용 리포트")
         
-        # [해결책] 막혀버리는 버튼 대신, 더블클릭하면 100% 인쇄되는 HTML 파일 다운로드 방식 도입
+        # HTML 다운로드 (에러 확률 0%)
         html_content = f"""<!DOCTYPE html>
         <html>
         <head>
-            <meta charset="utf-8">
-            <title>대입 컨설팅 리포트</title>
+            <meta charset="utf-8"><title>대입 컨설팅 리포트</title>
             <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
             <style>
                 body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.6; color: #111; max-width: 21cm; margin: auto; }}
                 h1 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 5px; }}
                 .dept {{ text-align: right; color: #555; font-weight: bold; margin-bottom: 30px; }}
+                h3 {{ margin-top: 1.5em; color: #222; }}
+                h4 {{ margin-top: 1em; color: #444; }}
                 p, li {{ font-size: 10pt; }}
             </style>
         </head>
@@ -259,21 +279,21 @@ if excel_file and pdf_file and target_major:
             <div class="dept">지원학과: {target_major}</div>
             <div id="content"></div>
             <script>
-                var rawMd = decodeURIComponent("{requests.utils.quote(clean_res)}");
+                var rawMd = decodeURIComponent("{urllib.parse.quote(final_report_markdown)}");
                 document.getElementById('content').innerHTML = marked.parse(rawMd);
             </script>
         </body>
         </html>"""
 
         st.download_button(
-            label="📄 리포트 다운로드 (클릭 후 열면 자동 인쇄)",
+            label="📄 리포트 파일로 받아서 인쇄하기 (가장 안정적)",
             data=html_content,
             file_name=f"{target_major}_컨설팅_리포트.html",
             mime="text/html",
             use_container_width=True
         )
         
-        st.info("💡 **인쇄하는 2가지 방법**\n1. 위 **[리포트 다운로드]** 버튼을 눌러 받아진 파일을 열면 팝업 차단 없이 즉시 인쇄창이 뜹니다. (가장 확실)\n2. 또는 키보드에서 **`Ctrl` + `P`** (맥은 Cmd+P)를 누르시면 이 화면 그대로 깨끗하게 인쇄됩니다.")
+        st.info("💡 **인쇄하는 2가지 방법**\n1. 위 **[리포트 파일로 받아서 인쇄하기]** 버튼을 눌러 파일을 열면 즉시 팝업창 없이 인쇄됩니다.\n2. 키보드 **`Ctrl` + `P`** (맥은 Cmd+P)를 누르시면 지금 보시는 리포트 화면만 종이에 꽉 차게 인쇄됩니다.")
         
         st.markdown("---")
         
@@ -285,5 +305,5 @@ if excel_file and pdf_file and target_major:
             <hr>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown(f"<div class='print-only'>{clean_res.replace(chr(10), '<br>')}</div>", unsafe_allow_html=True)
-        st.markdown(clean_res)
+        
+        st.markdown(f"<div class='print-only'>\n\n{final_report_markdown}\n\n</div>", unsafe_allow_html=True)
