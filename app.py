@@ -5,6 +5,7 @@ import plotly.express as px
 import pdfplumber
 import requests
 import re
+import base64
 
 # ==========================================
 # 1. 보안 및 API 설정
@@ -21,38 +22,7 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 인쇄 전용 CSS (화면/인쇄 완벽 분리)
-# ==========================================
-st.markdown("""
-    <style>
-    /* 화면에서는 인쇄용 리포트를 숨김 */
-    @media screen {
-        .print-area { display: none !important; }
-    }
-    /* 인쇄 시 스트림릿 UI를 싹 지우고 리포트만 노출 */
-    @media print {
-        header, footer, [data-testid="stSidebar"], .stTabs, .stChatInputContainer, button {
-            display: none !important;
-        }
-        .main .block-container {
-            padding: 0 !important;
-            max-width: 100% !important;
-        }
-        .print-area {
-            display: block !important;
-            width: 100% !important;
-            color: black !important;
-            background-color: white !important;
-            font-size: 11pt !important;
-            line-height: 1.7 !important;
-        }
-        @page { margin: 2cm; }
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ==========================================
-# 3. 데이터 가공 함수 (기능 유지)
+# 2. 데이터 가공 함수
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -95,9 +65,9 @@ def process_performance_data(file):
     return i_df, m_df
 
 # ==========================================
-# 4. 메인 UI 및 농어촌 옵션
+# 3. 메인 UI 및 농어촌 옵션
 # ==========================================
-st.set_page_config(page_title="진학 마스터", layout="wide")
+st.set_page_config(page_title="고3 대입 전문 컨설팅", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅")
 
 with st.sidebar:
@@ -122,7 +92,7 @@ with st.sidebar:
                 sync_knowledge(extracted_text); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 로직 (프롬프트 강제성 부여)
+# 4. 분석 로직
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -133,15 +103,18 @@ if excel_file and pdf_file and target_major:
             
             rural_inst = "이 학생은 [농어촌 전형] 대상자이므로, 대입 전략 수립 시 농어촌 전형 지원 분석을 반드시 포함할 것." if is_rural else ""
             
+            # [수정] 제목 생성 절대 금지 지침 추가
             prompt = f"""
             지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함.
             {rural_inst}
+            [경고] 리포트 맨 위에 어떠한 형태의 제목(Title)이나 인사말도 절대 작성하지 말고, 무조건 [PART 1: 종합 진단] 이라는 글자로 시작할 것.
+            
             [PART 1: 종합 진단] 성적 분석 및 전형 적합성 기술.
             [PART 2: 대입 전략] 대학 라인 제안 및 추천 도서.
             [PART 3: 심화 탐구] 반드시 "주제:", "종적/횡적 근거:", "탐구 방법:" 이라는 키워드를 사용하여 3가지 주제 작성.
             [PART 4: 면접 대비] 반드시 "질문:", "모범 답안:", "준비 방법:" 이라는 키워드를 사용하여 3개 문항 작성.
             
-            리포트의 가장 마지막 줄에는 반드시 아래 형식으로 전형 비중 태그를 달 것 (띄어쓰기 포함 준수):
+            리포트의 가장 마지막 줄에는 반드시 아래 형식으로 전형 비중 태그를 달 것:
             @PIE [교과: 50%, 정시: 30%, 종합: 20%] @
             
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 누적지식({k_base[:10000]})
@@ -150,11 +123,11 @@ if excel_file and pdf_file and target_major:
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # 결과 정규표현식 파싱 (어떤 변형이 와도 잡아냄)
+    # 파싱 로직 (제목 강제 삭제)
     res = st.session_state.analysis_result
-    clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL) # 태그 제거된 순수 텍스트
+    main_content = "[PART 1:" + res.split("[PART 1:")[1] if "[PART 1:" in res else res
+    clean_res = re.sub(r'@.*?@', '', main_content, flags=re.DOTALL).strip()
 
-    # 탭 분리 로직 (안전한 정규식 스플릿)
     part1_2 = re.split(r'\[PART 3', clean_res)[0]
     p3_raw = re.split(r'\[PART 3.*?\]', clean_res)[1] if "[PART 3" in clean_res else ""
     p4_raw = ""
@@ -165,14 +138,13 @@ if excel_file and pdf_file and target_major:
 
     tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
 
-    # ------------------ Tab 1: 진단 및 전략 ------------------
+    # ------------------ Tab 1 ------------------
     with tab1:
         st.subheader("📊 성적 및 전형 분석")
         c1, c2, c3 = st.columns(3)
         if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
         if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
         
-        # [완벽 복구] 파이 차트 강제 추출
         pie_raw = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
         if pie_raw:
             try:
@@ -182,11 +154,10 @@ if excel_file and pdf_file and target_major:
             
         st.markdown(part1_2.replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
 
-    # ------------------ Tab 2: 심화 탐구 가이드 ------------------
+    # ------------------ Tab 2 ------------------
     with tab2:
         if p3_raw:
             st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
-            # 띄어쓰기가 틀려도 무조건 이모지로 교체하는 정규식 적용
             f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_raw)
             f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
             f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
@@ -200,7 +171,7 @@ if excel_file and pdf_file and target_major:
             f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
             st.markdown(f_p4)
 
-    # ------------------ Tab 3: 실시간 상담 ------------------
+    # ------------------ Tab 3 ------------------
     with tab3:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
@@ -211,23 +182,48 @@ if excel_file and pdf_file and target_major:
                 ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
-    # ------------------ Tab 4: 핵심 요약 및 인쇄 ------------------
+    # ------------------ Tab 4 (인쇄 로직 완전 변경) ------------------
     with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
-        # [완벽 복구] 스트림릿 버튼 제약을 우회하는 순수 HTML a 태그 방식 적용
-        st.markdown("""
-            <a href="javascript:window.print();" style="display:block; background-color:#ff4b4b; color:white; text-align:center; padding:12px; border-radius:8px; text-decoration:none; font-weight:bold; margin-bottom:20px;">
-                📄 PDF 인쇄창 열기 (클릭)
+        
+        # 새 탭에서 열릴 순수 HTML 문서 생성 (스트림릿 간섭 0%)
+        html_template = f"""<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>고3 대입 전문 컨설팅 리포트</title>
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <style>
+                body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.7; color: #333; max-width: 21cm; margin: auto; }}
+                .header {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 30px; }}
+                .header h1 {{ margin: 0; font-size: 24pt; border: none; }}
+                .dept {{ text-align: right; font-weight: bold; color: #555; margin-top: 10px; font-size: 12pt; }}
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>대입 컨설팅 결과 리포트</h1>
+                <div class="dept">지원학과: {target_major}</div>
+            </div>
+            <textarea id="raw-md" style="display:none;">{clean_res.replace('</textarea>', '')}</textarea>
+            <div id="content"></div>
+            <script>
+                document.getElementById('content').innerHTML = marked.parse(document.getElementById('raw-md').value);
+                setTimeout(function() {{ window.print(); }}, 500);
+            </script>
+        </body>
+        </html>"""
+        
+        # HTML을 Base64로 인코딩하여 하이퍼링크에 삽입
+        b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
+        data_uri = f"data:text/html;charset=utf-8;base64,{b64_html}"
+        
+        st.markdown(f"""
+            <a href="{data_uri}" target="_blank" style="display:block; background-color:#ff4b4b; color:white; text-align:center; padding:12px; border-radius:8px; text-decoration:none; font-weight:bold; margin-bottom:20px;">
+                📄 새 탭에서 PDF 인쇄창 열기 (클릭)
             </a>
             """, unsafe_allow_html=True)
-        st.info("💡 위 버튼을 누르면 인쇄 미리보기 창이 뜹니다. (대상: PDF로 저장)")
-
-    # ------------------ 인쇄 전용 영역 (화면에선 숨김) ------------------
-    st.markdown(f"""
-    <div class="print-area">
-        <h1 style="text-align: center;">대입 컨설팅 결과 리포트 {"(농어촌 대상)" if is_rural else ""}</h1>
-        <p style="text-align: right;">지원학과: {target_major}</p>
-        <hr>
-        <div style="white-space: pre-wrap; font-family: sans-serif; line-height: 1.8;">{clean_res}</div>
-    </div>
-    """, unsafe_allow_html=True)
+            
+        st.info("💡 위 버튼을 클릭하면 스트림릿 창을 벗어나 **새로운 브라우저 탭**이 열리며 완벽한 리포트가 인쇄됩니다.")
+        st.markdown("---")
+        st.markdown(clean_res)
