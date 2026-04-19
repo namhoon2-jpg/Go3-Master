@@ -22,51 +22,36 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 인쇄 전용 CSS (백지 방지 및 레이아웃 고정)
+# 2. 인쇄 및 UI 스타일 (백지 방지 및 구조 최적화)
 # ==========================================
 st.markdown("""
     <style>
     @media print {
-        /* 사이드바, 헤더, 버튼 등 모든 UI 숨김 */
         [data-testid="stSidebar"], header, footer, .stTabs, button, .stButton {
             display: none !important;
         }
-        /* 인쇄할 내용만 화면 전체에 꽉 차게 설정 */
         .print-area {
             display: block !important;
             width: 100% !important;
-            position: absolute;
-            left: 0;
-            top: 0;
+            position: absolute; left: 0; top: 0;
             color: black !important;
             background-color: white !important;
             font-size: 11pt !important;
             line-height: 1.7 !important;
         }
-        /* 불필요한 여백 제거 */
-        .main .block-container {
-            padding: 0 !important;
-        }
+        .main .block-container { padding: 0 !important; }
         @page { margin: 2cm; }
     }
-    /* 화면에서는 버튼처럼 보이게 하는 스타일 */
     .print-btn {
-        background-color: #ff4b4b;
-        color: white;
-        padding: 10px 20px;
-        border-radius: 8px;
-        text-align: center;
-        display: inline-block;
-        text-decoration: none;
-        font-weight: bold;
-        cursor: pointer;
-        border: none;
+        background-color: #ff4b4b; color: white; padding: 10px 20px;
+        border-radius: 8px; text-align: center; display: inline-block;
+        text-decoration: none; font-weight: bold; cursor: pointer; border: none;
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수
+# 3. 데이터 동기화 및 가공 함수
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -121,7 +106,7 @@ with st.sidebar:
     pdf_file = st.file_uploader("2. 생기부 PDF", type="pdf")
     st.divider()
     st.header("📚 지식 데이터베이스")
-    ref_file = st.file_uploader("학습용 자료 업로드", type=["pdf", "xlsx"])
+    ref_file = st.file_uploader("자료 업로드", type=["pdf", "xlsx"])
     if st.button("💾 영구 저장"):
         if ref_file:
             with st.spinner("저장 중..."):
@@ -134,7 +119,7 @@ with st.sidebar:
                 sync_knowledge(extracted_text); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 로직
+# 5. 분석 및 탭 출력
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -143,12 +128,13 @@ if excel_file and pdf_file and target_major:
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             prompt = f"""
-            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 분석함. 명사형 종결어미의 개괄식 사용.
-            [PART 1: 종합 진단] 성적 분석 및 전형 적합성 풍성하게 기술.
-            [PART 2: 대입 전략] 대학 라인 제안 및 추천 도서 3권(도서명 - 사유).
-            [PART 3: 심화 탐구 전략] 아래 순서 고수: 1) 주제, 2) 종적/횡적 근거, 3) 탐구 방법(Step 1-2-3).
-            [PART 4: 면접 대비] 아래 순서 고수: 1) 질문, 2) 모범 답안, 3) 준비 방법.
-            학생데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 누적지식({k_base[:10000]})
+            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함. 명사형 종결어미의 개괄식 사용. 인사말 생략.
+            [PART 1: 종합 진단] 성적 분석 및 전형 적합성을 매우 풍성하게 기술.
+            [PART 2: 대입 전략] 대학 라인 제안 및 추천 도서 3권(도서명 - 추천 사유).
+            [PART 3: 심화 탐구 전략] 3개 주제 제안하되, 주제-종적/횡적 근거-탐구 방법(Step 1,2,3) 순서를 엄격히 준수.
+            [PART 4: 면접 대비] 질문-모범 답안-준비 방법 순서를 엄격히 준수.
+            [태그] @PIE [교과:%, 정시:%, 종합:%] @
+            데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 누적지식({k_base[:10000]})
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
@@ -164,13 +150,24 @@ if excel_file and pdf_file and target_major:
         c1, c2, c3 = st.columns(3)
         if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
         if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
+        
+        # [복구] 원형 그래프(PIE) 로직
+        pie_raw = re.search(r'@PIE \[(.*?)\] @', res)
+        if pie_raw:
+            try:
+                p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in [it.split(':') for it in pie_raw.group(1).split(',')]]
+                c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형 비중"), use_container_width=True)
+            except: pass
+        
         st.markdown(clean_res.split("[PART 3:")[0].replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
 
     with tab2:
+        # [복구] PART 3 & PART 4 가독성 강화 로직
         if "[PART 3:" in clean_res:
             p3_raw = clean_res.split("[PART 3:")[1].split("[PART 4:")[0]
-            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구")
+            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
             st.markdown(p3_raw.replace("주제:", "#### 📍 주제:").replace("종적/횡적 근거:", "🔍 **종적/횡적 근거:**").replace("탐구 방법:", "🛠️ **탐구 방법:**"))
+            
             if "[PART 4:" in clean_res:
                 st.markdown("---")
                 st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
@@ -179,7 +176,7 @@ if excel_file and pdf_file and target_major:
     with tab3:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        if p_chat := st.chat_input("추가 상담 질문..."):
+        if p_chat := st.chat_input("추가 질문..."):
             st.session_state.chat_history.append({"role": "user", "content": p_chat})
             with st.chat_message("user"): st.markdown(p_chat)
             with st.chat_message("assistant"):
@@ -188,15 +185,5 @@ if excel_file and pdf_file and target_major:
 
     with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
-        # 자바스크립트를 직접 실행하여 전체 페이지를 인쇄 타겟으로 잡음
         st.markdown('<button class="print-btn" onclick="window.print()">📄 PDF 인쇄창 열기 (클릭)</button>', unsafe_allow_html=True)
-        
-        # 실제 인쇄될 영역
-        st.markdown(f"""
-        <div class="print-area">
-            <h1 style="text-align: center;">대입 컨설팅 결과 리포트</h1>
-            <p style="text-align: right;">지원학과: {target_major}</p>
-            <hr>
-            <div style="white-space: pre-wrap;">{clean_res}</div>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown(f'<div class="print-area"><h1 style="text-align: center;">대입 컨설팅 결과 리포트</h1><p style="text-align: right;">학과: {target_major}</p><hr><div style="white-space: pre-wrap;">{clean_res}</div></div>', unsafe_allow_html=True)
