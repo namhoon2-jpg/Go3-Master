@@ -5,7 +5,6 @@ import plotly.express as px
 import pdfplumber
 import requests
 import re
-import io
 
 # ==========================================
 # 1. 보안 및 API 설정
@@ -22,27 +21,25 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 인쇄 전용 CSS (탭 숨김 시 본문 실종 문제 완벽 해결)
+# 2. 인쇄 전용 CSS (화면/인쇄 완벽 분리)
 # ==========================================
 st.markdown("""
     <style>
-    /* 화면에서는 인쇄용 영역을 숨깁니다 */
-    .print-area { display: none; }
-
+    /* 화면에서는 인쇄용 리포트를 숨김 */
+    @media screen {
+        .print-area { display: none !important; }
+    }
+    /* 인쇄 시 스트림릿 UI를 싹 지우고 리포트만 노출 */
     @media print {
-        /* 화면의 모든 UI 요소를 숨깁니다 */
-        body * { visibility: hidden; }
-        [data-testid="stSidebar"], header, footer, .stTabs, button, .stChatInput {
+        header, footer, [data-testid="stSidebar"], .stTabs, .stChatInputContainer, button {
             display: none !important;
         }
-        /* 오직 인쇄 전용 영역만 강제로 노출합니다 */
-        .print-area, .print-area * {
-            visibility: visible !important;
+        .main .block-container {
+            padding: 0 !important;
+            max-width: 100% !important;
         }
         .print-area {
             display: block !important;
-            position: absolute;
-            left: 0; top: 0;
             width: 100% !important;
             color: black !important;
             background-color: white !important;
@@ -50,11 +47,6 @@ st.markdown("""
             line-height: 1.7 !important;
         }
         @page { margin: 2cm; }
-    }
-    .print-btn {
-        background-color: #ff4b4b; color: white; padding: 10px 20px;
-        border-radius: 8px; text-align: center; display: inline-block;
-        font-weight: bold; cursor: pointer; border: none; text-decoration: none;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -103,7 +95,7 @@ def process_performance_data(file):
     return i_df, m_df
 
 # ==========================================
-# 4. 메인 UI 및 농어촌 옵션 추가
+# 4. 메인 UI 및 농어촌 옵션
 # ==========================================
 st.set_page_config(page_title="진학 마스터", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅")
@@ -113,8 +105,6 @@ with st.sidebar:
     target_major = st.text_input("희망 학과", placeholder="예: 간호학과")
     excel_file = st.file_uploader("1. 성적 엑셀", type=["xlsx"])
     pdf_file = st.file_uploader("2. 생기부 PDF", type="pdf")
-    
-    # [신규] 농어촌 전형 체크박스
     is_rural = st.checkbox("🌾 농어촌 전형 대상자 여부", value=False)
     
     st.divider()
@@ -132,59 +122,85 @@ with st.sidebar:
                 sync_knowledge(extracted_text); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 로직 (농어촌 지침 추가)
+# 5. 분석 로직 (프롬프트 강제성 부여)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('농어촌 전형 포함 보수적 리포트 생성 중...'):
+        with st.spinner('보수적 정밀 분석 리포트 생성 중...'):
             i_df, m_df = process_performance_data(excel_file)
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
-            rural_instruction = "또한 이 학생은 [농어촌 전형] 대상자이므로, PART 2 전략 수립 시 농어촌 전형(정원 외) 지원의 유리함과 합격 가능성을 일반 전형과 비교하여 심층 분석할 것." if is_rural else ""
+            rural_inst = "이 학생은 [농어촌 전형] 대상자이므로, 대입 전략 수립 시 농어촌 전형 지원 분석을 반드시 포함할 것." if is_rural else ""
             
             prompt = f"""
-            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함. 명사형 종결어미 사용.
-            {rural_instruction}
+            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함.
+            {rural_inst}
             [PART 1: 종합 진단] 성적 분석 및 전형 적합성 기술.
-            [PART 2: 대입 전략] 농어촌 포함 대학 라인 제안 및 추천 도서.
-            [PART 3: 심화 탐구] 주제-근거-방법(Step 1-2-3).
-            [PART 4: 면접 대비] 질문-답안-준비 방법.
+            [PART 2: 대입 전략] 대학 라인 제안 및 추천 도서.
+            [PART 3: 심화 탐구] 반드시 "주제:", "종적/횡적 근거:", "탐구 방법:" 이라는 키워드를 사용하여 3가지 주제 작성.
+            [PART 4: 면접 대비] 반드시 "질문:", "모범 답안:", "준비 방법:" 이라는 키워드를 사용하여 3개 문항 작성.
+            
+            리포트의 가장 마지막 줄에는 반드시 아래 형식으로 전형 비중 태그를 달 것 (띄어쓰기 포함 준수):
+            @PIE [교과: 50%, 정시: 30%, 종합: 20%] @
+            
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 누적지식({k_base[:10000]})
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # 탭 결과 렌더링
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
+    # 결과 정규표현식 파싱 (어떤 변형이 와도 잡아냄)
     res = st.session_state.analysis_result
-    main_content = "[PART 1:" + res.split("[PART 1:")[1] if "[PART 1:" in res else res
-    clean_res = re.sub(r'@.*?@', '', main_content, flags=re.DOTALL)
+    clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL) # 태그 제거된 순수 텍스트
 
+    # 탭 분리 로직 (안전한 정규식 스플릿)
+    part1_2 = re.split(r'\[PART 3', clean_res)[0]
+    p3_raw = re.split(r'\[PART 3.*?\]', clean_res)[1] if "[PART 3" in clean_res else ""
+    p4_raw = ""
+    if "[PART 4" in p3_raw:
+        split_p34 = re.split(r'\[PART 4.*?\]', p3_raw)
+        p3_raw = split_p34[0]
+        p4_raw = split_p34[1]
+
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
+
+    # ------------------ Tab 1: 진단 및 전략 ------------------
     with tab1:
         st.subheader("📊 성적 및 전형 분석")
         c1, c2, c3 = st.columns(3)
         if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
         if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
-        pie_raw = re.search(r'@PIE \[(.*?)\] @', res)
+        
+        # [완벽 복구] 파이 차트 강제 추출
+        pie_raw = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
         if pie_raw:
             try:
-                p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in [it.split(':') for it in pie_raw.group(1).split(',')]]
+                p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in [p.split(':') for p in pie_raw.group(1).split(',')]]
                 c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
             except: pass
-        st.markdown(clean_res.split("[PART 3:")[0].replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
+            
+        st.markdown(part1_2.replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
 
+    # ------------------ Tab 2: 심화 탐구 가이드 ------------------
     with tab2:
-        if "[PART 3:" in clean_res:
-            p3_raw = clean_res.split("[PART 3:")[1].split("[PART 4:")[0]
-            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구")
-            st.markdown(p3_raw.replace("주제:", "#### 📍 주제:").replace("종적/횡적 근거:", "🔍 **종적/횡적 근거:**").replace("탐구 방법:", "🛠️ **탐구 방법:**"))
-            if "[PART 4:" in clean_res:
-                st.markdown("---")
-                st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
-                st.markdown(clean_res.split("[PART 4:")[1].replace("질문:", "#### ❓ 질문:").replace("모범 답안:", "✅ **모범 답안:**").replace("준비 방법:", "🛠️ **준비 방법:**"))
+        if p3_raw:
+            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
+            # 띄어쓰기가 틀려도 무조건 이모지로 교체하는 정규식 적용
+            f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_raw)
+            f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
+            f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
+            st.markdown(f_p3)
+            
+        if p4_raw:
+            st.markdown("---")
+            st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
+            f_p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4_raw)
+            f_p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', f_p4)
+            f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
+            st.markdown(f_p4)
 
+    # ------------------ Tab 3: 실시간 상담 ------------------
     with tab3:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
@@ -195,17 +211,23 @@ if excel_file and pdf_file and target_major:
                 ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
+    # ------------------ Tab 4: 핵심 요약 및 인쇄 ------------------
     with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
-        st.markdown('<button class="print-btn" onclick="window.print()">📄 PDF 인쇄창 열기 (클릭)</button>', unsafe_allow_html=True)
-        st.info("💡 인쇄 시 백지가 나온다면, 미리보기 창에서 리포트 내용이 보일 때까지 잠시만 기다려주세요.")
+        # [완벽 복구] 스트림릿 버튼 제약을 우회하는 순수 HTML a 태그 방식 적용
+        st.markdown("""
+            <a href="javascript:window.print();" style="display:block; background-color:#ff4b4b; color:white; text-align:center; padding:12px; border-radius:8px; text-decoration:none; font-weight:bold; margin-bottom:20px;">
+                📄 PDF 인쇄창 열기 (클릭)
+            </a>
+            """, unsafe_allow_html=True)
+        st.info("💡 위 버튼을 누르면 인쇄 미리보기 창이 뜹니다. (대상: PDF로 저장)")
 
-    # [핵심] 탭 외부, 페이지 최하단에 인쇄 전용 영역 배치 (탭 숨김에 영향받지 않음)
+    # ------------------ 인쇄 전용 영역 (화면에선 숨김) ------------------
     st.markdown(f"""
     <div class="print-area">
         <h1 style="text-align: center;">대입 컨설팅 결과 리포트 {"(농어촌 대상)" if is_rural else ""}</h1>
         <p style="text-align: right;">지원학과: {target_major}</p>
         <hr>
-        <div style="white-space: pre-wrap; font-family: sans-serif;">{clean_res}</div>
+        <div style="white-space: pre-wrap; font-family: sans-serif; line-height: 1.8;">{clean_res}</div>
     </div>
     """, unsafe_allow_html=True)
