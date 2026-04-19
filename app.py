@@ -11,17 +11,15 @@ import io
 # 1. 보안 및 API 설정
 # ==========================================
 try:
-    # Streamlit Secrets에서 정보를 가져옵니다.
     API_KEY = st.secrets["GEMINI_API_KEY"]
     GSHEET_SCRIPT_URL = st.secrets["GSHEET_SCRIPT_URL"]
     
     genai.configure(api_key=API_KEY)
-    # Gemini 3 Flash 모델 사용 (유료 티어 성능)
+    # 선생님께서 계속 사용하시던 검증된 2.5-flash 모델
     model = genai.GenerativeModel('gemini-2.5-flash')
 except:
     st.error("⚠️ Secrets 설정(GEMINI_API_KEY, GSHEET_SCRIPT_URL)이 누락되었습니다.")
 
-# 세션 상태 초기화
 if "analysis_result" not in st.session_state: st.session_state.analysis_result = ""
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
@@ -29,13 +27,9 @@ if "chat_history" not in st.session_state: st.session_state.chat_history = []
 # 2. 구글 시트 데이터 동기화 함수
 # ==========================================
 def sync_knowledge(new_content=None):
-    """구글 시트에 데이터를 저장(POST)하거나 전체를 불러옵니다(GET)."""
     try:
         if new_content:
-            # 새로운 지식 영구 저장 (POST)
             requests.post(GSHEET_SCRIPT_URL, json={"content": new_content})
-        
-        # 전체 누적 지식 불러오기 (GET)
         response = requests.get(GSHEET_SCRIPT_URL)
         return response.text if response.status_code == 200 else ""
     except:
@@ -48,7 +42,6 @@ def process_performance_data(file):
     xls = pd.ExcelFile(file)
     i_df, m_df = pd.DataFrame(), pd.DataFrame()
     
-    # 내신 데이터 (학생부현황 시트)
     if '학생부현황' in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name='학생부현황')
         res = []
@@ -65,7 +58,6 @@ def process_performance_data(file):
                 if u_s > 0: res.append({"학기": f"{int(g)}-{s_idx}", "등급": round(w_s/u_s, 2)})
         i_df = pd.DataFrame(res)
 
-    # 모의고사 데이터 (수능모의고사 시트)
     if '수능모의고사' in xls.sheet_names:
         df_m = pd.read_excel(xls, sheet_name='수능모의고사')
         m_res = []
@@ -86,14 +78,14 @@ def process_performance_data(file):
     return i_df, m_df
 
 # ==========================================
-# 4. 메인 UI (V31 레이아웃 복구)
+# 4. 메인 UI
 # ==========================================
-st.set_page_config(page_title="고3 진학 마스터 V38", layout="wide")
-st.title("🎓 고3 대입 전문 컨설팅 솔루션 (V38 - 영구 보관형)")
+st.set_page_config(page_title="고3 진학 마스터 V40", layout="wide")
+st.title("🎓 고3 대입 전문 컨설팅 (V40 - 리포트 최적화)")
 
 with st.sidebar:
     st.header("📋 학생 데이터 입력")
-    target_major = st.text_input("희망 학과", placeholder="예: 경영학과")
+    target_major = st.text_input("희망 학과", placeholder="예: 간호학과")
     excel_file = st.file_uploader("1. 성적 엑셀 (필수)", type=["xlsx"])
     pdf_file = st.file_uploader("2. 생기부 PDF (필수)", type="pdf")
     
@@ -103,62 +95,60 @@ with st.sidebar:
     
     if st.button("💾 이 파일을 영구 저장하기"):
         if ref_file:
-            with st.spinner("지식 추출 및 시트 저장 중..."):
+            with st.spinner("지식 추출 중..."):
                 extracted_text = ""
                 if ref_file.name.endswith(".pdf"):
                     with pdfplumber.open(ref_file) as p: extracted_text = "".join([pg.extract_text() for pg in p.pages])
                 else:
                     df_ref = pd.read_excel(ref_file); extracted_text = df_ref.to_string()
-                
-                # 구글 시트에 텍스트 영구 박제
                 sync_knowledge(f"\n[자료: {ref_file.name}]\n{extracted_text}")
-                st.success("데이터가 구글 시트에 영구 보관되었습니다.")
-        else:
-            st.warning("저장할 파일을 먼저 선택하세요.")
+                st.success("보관 완료!")
 
 # ==========================================
-# 5. 분석 및 결과 출력
+# 5. 분석 로직
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('구글 시트 누적 지식 기반 심층 분석 중...'):
+        with st.spinner('누적 지식 기반 심층 분석 중...'):
             i_df, m_df = process_performance_data(excel_file)
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
-            
-            # 구글 시트에서 전체 누적 지식 가져오기
             accumulated_knowledge = sync_knowledge()
 
             prompt = f"""
             베테랑 입시 교사로서 {target_major} 지망 학생을 분석함. 
-            모든 답변은 개괄식 음슴체로 작성하고 전문성을 유지함.
-            지방 일반고의 현실을 적극 반영하여 합리적이고 보수적인 대학 라인을 제안함.
+            모든 답변은 명사형 종결어미의 개괄식 음슴체로 작성함. 
+            인사말이나 제목은 생략하고 바로 [PART 1:]부터 시작할 것.
 
-            [입력 데이터]
-            - 누적 지식 베이스: {accumulated_knowledge[:7000]}
-            - 학생 성적: 내신({i_df.to_string()}), 모의고사({m_df.to_string()})
-            
-            [출력 구조]
-            [PART 1: 종합 진단] (내신 추이 및 수능 최저 충족 가시성 정밀 분석)
-            [PART 2: 대입 전략] (안정/적정/상향 대학 라인 및 추천 도서 3권 요약)
-            [PART 3: 심화 탐구] (가시성 좋은 Step 1, 2, 3 단계별 가이드)
-            [PART 4: 면접 대비] (질문-모범답안-준비방법)
+            [PART 1: 종합 진단]
+            [PART 2: 대입 전략] (추천 도서 3권 포함)
+            [PART 3: 심화 탐구 전략] (3개 주제 각각 종적/횡적 근거와 Step 1-2-3 포함)
+            [PART 4: 면접 대비]
 
             [태그] @PIE [교과:%, 정시:%, 종합:%] @ @PERCENT [00] @
+            학생 데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()})
             생기부 내용: {pdf_text[:15000]}
+            누적 지식: {accumulated_knowledge[:7000]}
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # 탭 구성 및 결과 출력
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🎯 탐구 및 면접", "💬 실시간 상담", "🖨️ 핵심 요약"])
+    # 탭 결과 출력 로직 (수정됨)
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
     res = st.session_state.analysis_result
-    clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL)
+    
+    # [PART 1] 앞부분의 불필요한 서두를 잘라내는 필터
+    if "[PART 1:" in res:
+        main_content = "[PART 1:" + res.split("[PART 1:")[1]
+    else:
+        main_content = res
+
+    clean_res = re.sub(r'@.*?@', '', main_content, flags=re.DOTALL)
 
     with tab1:
-        st.subheader("📊 통합 성적 분석")
+        st.subheader("📊 성적 분석 및 전략")
         c1, c2, c3 = st.columns(3)
-        if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이"), use_container_width=True)
+        if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급"), use_container_width=True)
         if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
         
         pie_raw = re.search(r'@PIE \[(.*?)\] @', res)
@@ -166,13 +156,20 @@ if excel_file and pdf_file and target_major:
             p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in [it.split(':') for it in pie_raw.group(1).split(',')]]
             c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="전형 적합도"), use_container_width=True)
         
+        # [PART 1]과 [PART 2]만 출력
         st.markdown(clean_res.split("[PART 3:")[0].replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
 
     with tab2:
         if "[PART 3:" in clean_res:
-            st.markdown("### 🚀 [PART 3] 핵심 전략 (탐구 로드맵)")
-            p3_4 = clean_res.split("[PART 3:")[1].replace("[PART 4:", "### 🎤 [PART 4]")
-            st.markdown(p3_4.replace("질문:", "#### ❓ 질문:").replace("모범답안:", "✅ **모범답안:**").replace("준비방법:", "🛠️ **준비방법:**"))
+            p3_content = clean_res.split("[PART 3:")[1].split("[PART 4:")[0]
+            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵 (3종)")
+            formatted_p3 = p3_content.replace("심화 탐구 주제:", "#### 📍 주제:").replace("종적/횡적 근거:", "🔍 **근거:**").replace("탐구 활동 방법:", "🛠️ **탐구 단계:**")
+            st.markdown(formatted_p3)
+            
+            if "[PART 4:" in clean_res:
+                st.markdown("---")
+                st.markdown("### 🎤 [PART 4] 면접 예상 질문")
+                st.markdown(clean_res.split("[PART 4:")[1].replace("질문:", "#### ❓ 질문:").replace("모범답안:", "✅ **답안:**"))
 
     with tab3:
         for msg in st.session_state.chat_history:
@@ -181,9 +178,9 @@ if excel_file and pdf_file and target_major:
             st.session_state.chat_history.append({"role": "user", "content": p_chat})
             with st.chat_message("user"): st.markdown(p_chat)
             with st.chat_message("assistant"):
-                ans = model.generate_content(f"배경: {res}\n지식: {sync_knowledge()[:3000]}\n질문: {p_chat}")
+                ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text)
                 st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
     with tab4:
-        st.markdown("# 📋 핵심 요약 리포트 (인쇄용)"); st.info(clean_res)
+        st.markdown("# 📋 상담 요약 리포트"); st.info(clean_res)
