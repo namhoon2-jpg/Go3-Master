@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import google.generativeai as genai
 import pandas as pd
 import plotly.express as px
@@ -22,7 +23,7 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 인쇄 및 UI 스타일 (백지 방지 및 구조 최적화)
+# 2. 인쇄 및 UI 스타일 (나머지 유지, 인쇄 영역만 최적화)
 # ==========================================
 st.markdown("""
     <style>
@@ -42,16 +43,11 @@ st.markdown("""
         .main .block-container { padding: 0 !important; }
         @page { margin: 2cm; }
     }
-    .print-btn {
-        background-color: #ff4b4b; color: white; padding: 10px 20px;
-        border-radius: 8px; text-align: center; display: inline-block;
-        text-decoration: none; font-weight: bold; cursor: pointer; border: none;
-    }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 동기화 및 가공 함수
+# 3. 데이터 가공 함수 (기능 유지)
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -119,7 +115,7 @@ with st.sidebar:
                 sync_knowledge(extracted_text); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 및 탭 출력
+# 5. 분석 로직 (프롬프트 및 구조 유지)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -151,7 +147,6 @@ if excel_file and pdf_file and target_major:
         if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
         if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
         
-        # [복구] 원형 그래프(PIE) 로직
         pie_raw = re.search(r'@PIE \[(.*?)\] @', res)
         if pie_raw:
             try:
@@ -162,7 +157,6 @@ if excel_file and pdf_file and target_major:
         st.markdown(clean_res.split("[PART 3:")[0].replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
 
     with tab2:
-        # [복구] PART 3 & PART 4 가독성 강화 로직
         if "[PART 3:" in clean_res:
             p3_raw = clean_res.split("[PART 3:")[1].split("[PART 4:")[0]
             st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
@@ -185,5 +179,16 @@ if excel_file and pdf_file and target_major:
 
     with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
-        st.markdown('<button class="print-btn" onclick="window.print()">📄 PDF 인쇄창 열기 (클릭)</button>', unsafe_allow_html=True)
-        st.markdown(f'<div class="print-area"><h1 style="text-align: center;">대입 컨설팅 결과 리포트</h1><p style="text-align: right;">학과: {target_major}</p><hr><div style="white-space: pre-wrap;">{clean_res}</div></div>', unsafe_allow_html=True)
+        
+        # [수정] 인쇄 버튼 로직: window.parent.print()를 사용하여 브라우저 전체 인쇄 트리거
+        if st.button("📄 PDF 인쇄창 열기 (클릭)"):
+            components.html("<script>window.parent.print();</script>", height=0)
+        
+        st.markdown(f"""
+        <div class="print-area">
+            <h1 style="text-align: center;">대입 컨설팅 결과 리포트</h1>
+            <p style="text-align: right;">지원학과: {target_major}</p>
+            <hr>
+            <div style="white-space: pre-wrap;">{clean_res}</div>
+        </div>
+        """, unsafe_allow_html=True)
