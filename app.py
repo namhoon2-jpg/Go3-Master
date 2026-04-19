@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import google.generativeai as genai
 import pandas as pd
 import plotly.express as px
@@ -14,27 +15,29 @@ try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
     GSHEET_SCRIPT_URL = st.secrets["GSHEET_SCRIPT_URL"]
     genai.configure(api_key=API_KEY)
-    # 선생님의 메인 모델 gemini-2.5-flash 유지
     model = genai.GenerativeModel('gemini-2.5-flash')
 except:
-    st.error("⚠️ Secrets 설정 정보를 확인해주세요.")
+    st.error("⚠️ Secrets 설정 정보를 확인해주세요. (GEMINI_API_KEY, GSHEET_SCRIPT_URL)")
 
 if "analysis_result" not in st.session_state: st.session_state.analysis_result = ""
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. PDF 인쇄용 CSS 설정
+# 2. 인쇄 전용 CSS 스타일
 # ==========================================
 st.markdown("""
     <style>
     @media print {
-        [data-testid="stSidebar"], .stTabs, button, header, footer {
+        /* 인쇄 시 불필요한 UI 숨김 */
+        [data-testid="stSidebar"], .stTabs, button, header, footer, .stButton {
             display: none !important;
         }
+        /* 인쇄 영역 최적화 */
         .print-container {
             display: block !important;
             width: 100% !important;
-            padding: 20px !important;
+            color: black !important;
+            background-color: white !important;
             font-size: 11pt !important;
             line-height: 1.6 !important;
         }
@@ -44,7 +47,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 구글 시트 데이터 동기화 함수
+# 3. 데이터 동기화 및 가공 함수
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -54,9 +57,6 @@ def sync_knowledge(new_content=None):
         return response.text if response.status_code == 200 else ""
     except: return ""
 
-# ==========================================
-# 4. 데이터 가공 (성적)
-# ==========================================
 def process_performance_data(file):
     xls = pd.ExcelFile(file)
     i_df, m_df = pd.DataFrame(), pd.DataFrame()
@@ -95,81 +95,88 @@ def process_performance_data(file):
     return i_df, m_df
 
 # ==========================================
-# 5. 메인 UI
+# 4. 메인 화면 구성
 # ==========================================
 st.set_page_config(page_title="진학 마스터", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅")
 
 with st.sidebar:
     st.header("📋 학생 데이터 입력")
-    target_major = st.text_input("희망 학과", placeholder="예: 생명공학과")
-    excel_file = st.file_uploader("1. 성적 엑셀", type=["xlsx"])
-    pdf_file = st.file_uploader("2. 생기부 PDF", type="pdf")
+    target_major = st.text_input("희망 학과", placeholder="예: 수학교육과")
+    excel_file = st.file_uploader("1. 성적 엑셀 업로드", type=["xlsx"])
+    pdf_file = st.file_uploader("2. 생기부 PDF 업로드", type="pdf")
     st.divider()
     st.header("📚 지식 데이터베이스")
-    ref_file = st.file_uploader("학습용 파일 업로드", type=["pdf", "xlsx"])
+    ref_file = st.file_uploader("학습용 자료 업로드", type=["pdf", "xlsx"])
     if st.button("💾 영구 저장"):
         if ref_file:
-            with st.spinner("모든 시트 데이터 통합 중..."):
-                extracted_text = f"\n[자료: {ref_file.name}]\n"
+            with st.spinner("모든 데이터를 읽어오는 중..."):
+                extracted_text = f"\n[자료명: {ref_file.name}]\n"
                 if ref_file.name.endswith(".pdf"):
                     with pdfplumber.open(ref_file) as p: extracted_text += "".join([pg.extract_text() for pg in p.pages])
                 else:
                     xls_ref = pd.ExcelFile(ref_file)
                     for s in xls_ref.sheet_names:
                         extracted_text += f"\n--- 시트: {s} ---\n{pd.read_excel(xls_ref, s).to_string()}\n"
-                sync_knowledge(extracted_text); st.success("데이터베이스에 저장되었습니다.")
+                sync_knowledge(extracted_text); st.success("데이터베이스 동기화 완료!")
 
 # ==========================================
-# 6. 분석 로직 (순서 및 구조 정밀 수정)
+# 5. 보수적 정밀 분석 로직
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('지방 일반고 현실 반영 보수적 정밀 분석 중...'):
+        with st.spinner('지방 일반고 맞춤형 보수적 리포트 생성 중...'):
             i_df, m_df = process_performance_data(excel_file)
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
 
             prompt = f"""
-            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 분석함.
-            명사형 종결어미의 개괄식(Bullet point) 사용. 인사말 없이 [PART 1:]부터 시작.
+            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함.
+            답변은 명사형 종결어미의 개괄식(Bullet point)으로 작성함.
+            인사말 생략, [PART 1:]부터 시작.
+
+            [지침]
+            - 교과 전형 중심의 보수적 라인 제안.
+            - 수능 최저 기준은 실제 수능 하락 가능성을 염두에 두고 엄격히 적용.
 
             [PART 1: 종합 진단]
-            - 내신/모의고사 추이 분석 및 수능 최저 충족 가망성, 전형 적합성을 매우 풍성하게 서술함.
+            - 내신/모의고사 추이 및 전형 적합성을 매우 풍성하게 서술함.
 
             [PART 2: 대입 전략]
-            - 대학 라인(상향/적정/안정) 제안. 안정 라인 반드시 포함.
-            - 추천 도서: 도서명과 추천 사유만 간결하게 제시.
+            - 대학 라인(상향/적정/안정) 제안. 안정 라인 필수 포함.
+            - 추천 도서: [도서명] - [추천 사유] 형태로 3권 제시.
 
             [PART 3: 심화 탐구 전략]
-            - 총 3개의 주제를 아래 순서를 엄격히 지켜 제안함:
-                1) 주제: (구체적인 탐구 제목)
-                2) 종적/횡적 근거: (생기부 활동 간의 연결고리 및 확장 이유)
-                3) 탐구 방법: (Step 1, 2, 3 단계별 실행 가이드)
+            - 아래 순서를 엄격히 지켜 3개 주제 제안:
+                1) 주제: (구체적 제목)
+                2) 종적/횡적 근거: (생기부 연결성 기술)
+                3) 탐구 방법: (Step 1-2-3 단계별 가이드)
 
             [PART 4: 면접 대비]
-            - 각 질문당 아래 순서를 엄격히 지켜 구성함:
-                1) 질문: (생기부 기반 예상 질문)
-                2) 모범 답안: (핵심 키워드 중심의 답변 예시)
-                3) 준비 방법: (추가 학습 및 태도 지침)
+            - 아래 순서를 엄격히 지켜 문항 구성:
+                1) 질문: (예상 질문)
+                2) 모범 답안: (핵심 키워드 포함)
+                3) 준비 방법: (추가 가이드)
 
-            [태그] @PIE [교과:%, 정시:%, 종합:%] @ @PERCENT [00] @
-            데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 지식({k_base[:10000]})
+            [태그] @PIE [교과:%, 정시:%, 종합:%] @
+            학생 데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()})
+            생기부: {pdf_text[:15000]}
+            입시지식: {k_base[:10000]}
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # 결과 렌더링
+    # 탭 결과 렌더링
     tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
     res = st.session_state.analysis_result
     main_content = "[PART 1:" + res.split("[PART 1:")[1] if "[PART 1:" in res else res
     clean_res = re.sub(r'@.*?@', '', main_content, flags=re.DOTALL)
 
     with tab1:
-        st.subheader("📊 성적 및 전형 분석")
+        st.subheader("📊 성적 및 보수적 분석 결과")
         c1, c2, c3 = st.columns(3)
-        if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급"), use_container_width=True)
+        if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
         if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
         pie_raw = re.search(r'@PIE \[(.*?)\] @', res)
         if pie_raw:
@@ -180,46 +187,35 @@ if excel_file and pdf_file and target_major:
     with tab2:
         if "[PART 3:" in clean_res:
             p3_raw = clean_res.split("[PART 3:")[1].split("[PART 4:")[0]
-            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구")
-            # 사용자 요청 순서에 맞춘 포맷팅
+            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
             f_p3 = p3_raw.replace("주제:", "#### 📍 주제:").replace("종적/횡적 근거:", "🔍 **종적/횡적 근거:**").replace("탐구 방법:", "🛠️ **탐구 방법:**")
             st.markdown(f_p3)
-            
             if "[PART 4:" in clean_res:
                 st.markdown("---")
-                st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
-                # 사용자 요청 순서에 맞춘 포맷팅
+                st.markdown("### 🎤 [PART 4] 면접 예상 질문 및 답변")
                 f_p4 = clean_res.split("[PART 4:")[1].replace("질문:", "#### ❓ 질문:").replace("모범 답안:", "✅ **모범 답안:**").replace("준비 방법:", "🛠️ **준비 방법:**")
                 st.markdown(f_p4)
 
     with tab3:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        if p_chat := st.chat_input("추가 질문..."):
+        if p_chat := st.chat_input("학생의 궁금한 점을 질문하세요..."):
             st.session_state.chat_history.append({"role": "user", "content": p_chat})
             with st.chat_message("user"): st.markdown(p_chat)
             with st.chat_message("assistant"):
-                ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
+                ans = model.generate_content(f"상담 배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
-  with tab4:
+    with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
+        # 가장 확실한 인쇄 창 호출 방식
+        if st.button("📄 PDF 인쇄창 열기"):
+            components.html("<script>window.print();</script>", height=0)
         
-        # 버튼처럼 보이는 HTML/JS 링크 (이게 가장 확실합니다)
-        st.markdown("""
-            <a href="javascript:window.print()" style="text-decoration:none;">
-                <div style="background-color:#ff4b4b; color:white; padding:10px 20px; border-radius:10px; text-align:center; cursor:pointer; font-weight:bold;">
-                    📄 PDF 인쇄창 열기 (클릭)
-                </div>
-            </a>
-            <br>
-            """, unsafe_allow_html=True)
-        
-        # 인쇄 영역
         st.markdown(f"""
         <div class="print-container">
-            <h1 style="text-align: center;">입시 컨설팅 결과 보고서</h1>
-            <p style="text-align: right;">학과: {target_major}</p>
+            <h1 style="text-align: center;">대입 컨설팅 결과 리포트</h1>
+            <p style="text-align: right;">지원학과: {target_major}</p>
             <hr>
             {clean_res.replace("\n", "<br>")}
         </div>
