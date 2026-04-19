@@ -1,13 +1,11 @@
 import streamlit as st
-import streamlit.components.v1 as components
 import google.generativeai as genai
 import pandas as pd
 import plotly.express as px
 import pdfplumber
 import requests
 import re
-import base64
-import json
+import io
 
 # ==========================================
 # 1. 보안 및 API 설정
@@ -24,7 +22,40 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 속도 최적화: 데이터 가공 캐싱 처리
+# 2. 인쇄 전용 CSS 및 가독성 최적화
+# ==========================================
+st.markdown("""
+    <style>
+    .print-only { display: none; }
+    @media print {
+        [data-testid="stSidebar"], header, footer, .stTabs, button, .stChatInput {
+            display: none !important;
+        }
+        body * { visibility: hidden; }
+        .print-only, .print-only * { 
+            visibility: visible !important; 
+        }
+        .print-only {
+            display: block !important;
+            position: absolute; left: 0; top: 0;
+            width: 100% !important;
+            color: black !important;
+            background-color: white !important;
+            font-size: 9.5pt !important;
+            line-height: 1.5 !important;
+        }
+        @page { margin: 1.5cm; }
+    }
+    .print-btn-style {
+        background-color: #ff4b4b; color: white; padding: 10px 20px;
+        border-radius: 8px; text-align: center; display: inline-block;
+        font-weight: bold; cursor: pointer; border: none; width: 100%;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ==========================================
+# 3. 데이터 가공 및 캐싱 (속도 향상)
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -35,7 +66,6 @@ def sync_knowledge(new_content=None):
 
 @st.cache_data(show_spinner=False)
 def process_performance_data(file_bytes):
-    # 파일 바이트를 사용하여 캐싱 효율 극대화
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     i_df, m_df = pd.DataFrame(), pd.DataFrame()
     if '학생부현황' in xls.sheet_names:
@@ -68,21 +98,18 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
-import io
-
 # ==========================================
-# 3. 메인 UI 및 농어촌 옵션
+# 4. 메인 UI
 # ==========================================
 st.set_page_config(page_title="고3 대입 전문 컨설팅", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅")
 
 with st.sidebar:
     st.header("📋 학생 데이터 입력")
-    target_major = st.text_input("희망 학과", placeholder="예: 수학교육과")
+    target_major = st.text_input("희망 학과", placeholder="예: 신소재공학과")
     excel_file = st.file_uploader("1. 성적 엑셀", type=["xlsx"])
     pdf_file = st.file_uploader("2. 생기부 PDF", type="pdf")
     is_rural = st.checkbox("🌾 농어촌 전형 대상자 여부", value=False)
-    
     st.divider()
     st.header("📚 지식 데이터베이스")
     ref_file = st.file_uploader("자료 업로드", type=["pdf", "xlsx"])
@@ -94,134 +121,81 @@ with st.sidebar:
                     with pdfplumber.open(ref_file) as p: extracted_text += "".join([pg.extract_text() for pg in p.pages])
                 else:
                     xls_ref = pd.ExcelFile(ref_file)
-                    for s in xls_ref.sheet_names: extracted_text += f"\n--- 시트: {s} ---\n{pd.read_excel(xls_ref, s).to_string()}\n"
+                    for s in xls_ref.sheet_names: extracted_text += f"\n--- {s} ---\n{pd.read_excel(xls_ref, s).to_string()}\n"
                 sync_knowledge(extracted_text); st.success("동기화 완료!")
 
 # ==========================================
-# 4. 분석 로직
+# 5. 분석 로직 (논리적 일관성 강화)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('보수적 정밀 분석 리포트 생성 중...'):
+        with st.spinner('데이터 기반 보수적 정밀 분석 중...'):
             i_df, m_df = process_performance_data(excel_file.getvalue())
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
-            rural_inst = "이 학생은 [농어촌 전형] 대상자이므로, 대입 전략 수립 시 농어촌 전형 지원 분석을 반드시 포함할 것." if is_rural else ""
+            rural_inst = "이 학생은 [농어촌 전형] 대상자이므로, 관련 지원 분석을 필수 포함할 것." if is_rural else ""
             
             prompt = f"""
-            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함. 명사형 종결어미 사용.
+            지방 일반고 컨설턴트로서 {target_major} 지망 학생 분석. 보수적 관점 유지.
             {rural_inst}
-            [경고] 리포트 맨 위에 어떠한 형태의 제목이나 인사말도 절대 작성하지 마시오. 무조건 [PART 1: 종합 진단] 이라는 글자로 바로 시작하시오.
-            
-            [PART 1: 종합 진단] 성적 분석 및 전형 적합성 기술.
-            [PART 2: 대입 전략] 대학 라인 제안 및 추천 도서.
-            [PART 3: 심화 탐구] 반드시 "주제:", "종적/횡적 근거:", "탐구 방법:" 이라는 키워드를 사용하여 3가지 주제 작성.
-            [PART 4: 면접 대비] 반드시 "질문:", "모범 답안:", "준비 방법:" 이라는 키워드를 사용하여 3개 문항 작성.
-            
-            리포트의 가장 마지막 줄에는 반드시 아래 형식으로 전형 비중 태그를 달 것:
-            @PIE [교과: 50%, 정시: 30%, 종합: 20%] @
-            
-            데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 누적지식({k_base[:10000]})
+            [논리 지침] 
+            1. 텍스트 진단 결과와 @PIE 태그 수치는 반드시 일치해야 함. 정시가 어렵다면 정시 비중은 10% 이하로 설정.
+            2. 무조건 [PART 1: 종합 진단]으로 시작하며 제목은 생략함.
+
+            [PART 1: 종합 진단] 성적 및 전형 적합성.
+            [PART 2: 대입 전략] 대학 라인 및 추천 도서.
+            [PART 3: 심화 탐구] 주제-근거-방법 순서 준수.
+            [PART 4: 면접 대비] 질문-답안-준비 순서 준수.
+            @PIE [교과: %, 정시: %, 종합: %] @
+            데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 지식({k_base[:10000]})
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # 제목 강제 절단 로직 유지
     res = st.session_state.analysis_result
     main_content = "[PART 1:" + res.split("[PART 1:")[1] if "[PART 1:" in res else res
     clean_res = re.sub(r'@.*?@', '', main_content, flags=re.DOTALL).strip()
 
-    part1_2 = re.split(r'\[PART 3', clean_res)[0]
-    p3_raw = re.split(r'\[PART 3.*?\]', clean_res)[1] if "[PART 3" in clean_res else ""
-    p4_raw = ""
-    if "[PART 4" in p3_raw:
-        split_p34 = re.split(r'\[PART 4.*?\]', p3_raw)
-        p3_raw = split_p34[0]
-        p4_raw = split_p34[1]
-
     tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약"])
 
-    # ------------------ Tab 1 ------------------
     with tab1:
         st.subheader("📊 성적 및 전형 분석")
         c1, c2, c3 = st.columns(3)
         if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
         if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
-        
         pie_raw = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
         if pie_raw:
             try:
                 p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in [p.split(':') for p in pie_raw.group(1).split(',')]]
                 c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
             except: pass
-        st.markdown(part1_2.replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
+        st.markdown(clean_res.split("[PART 3:")[0].replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
 
-    # ------------------ Tab 2 ------------------
     with tab2:
-        if p3_raw:
-            st.markdown("### 🚀 [PART 3] 생기부 기반 심화 탐구 로드맵")
-            f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_raw)
-            f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
-            f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
-            st.markdown(f_p3)
-        if p4_raw:
-            st.markdown("---")
-            st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
-            f_p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4_raw)
-            f_p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', f_p4)
-            f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
-            st.markdown(f_p4)
+        if "[PART 3:" in clean_res:
+            p3_area = clean_res.split("[PART 3:")[1].split("[PART 4:")[0]
+            st.markdown("### 🚀 [PART 3] 심화 탐구 가이드")
+            st.markdown(p3_area.replace("주제:", "#### 📍 주제:").replace("종적/횡적 근거:", "🔍 **종적/횡적 근거:**").replace("탐구 방법:", "🛠️ **탐구 방법:**"))
+            if "[PART 4:" in clean_res:
+                st.markdown("---")
+                st.markdown("### 🎤 [PART 4] 면접 예상 질문")
+                st.markdown(clean_res.split("[PART 4:")[1].replace("질문:", "#### ❓ 질문:").replace("모범 답안:", "✅ **모범 답안:**").replace("준비 방법:", "🛠️ **준비 방법:**"))
 
-    # ------------------ Tab 3 ------------------
     with tab3:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        if p_chat := st.chat_input("추가 상담 질문..."):
+        if p_chat := st.chat_input("추가 상담..."):
             st.session_state.chat_history.append({"role": "user", "content": p_chat})
             with st.chat_message("user"): st.markdown(p_chat)
             with st.chat_message("assistant"):
                 ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
-    # ------------------ Tab 4 (인쇄 로직 및 글자 크기 최적화) ------------------
     with tab4:
-        st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
-        b64_md = base64.b64encode(clean_res.encode('utf-8')).decode('utf-8')
-        
-        print_code = f"""
-        <button onclick="openPrintWindow()" style="background-color:#ff4b4b; color:white; padding:12px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width: 100%; font-family: sans-serif; font-size: 16px;">
-            📄 안전한 PDF 인쇄창 열기 (클릭)
-        </button>
-        <script>
-        function openPrintWindow() {{
-            var win = window.open('', '_blank');
-            if (!win) {{ alert("팝업이 차단되었습니다. 허용해 주세요!"); return; }}
-            win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>대입 컨설팅 리포트</title>');
-            win.document.write('<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\\/script>');
-            // [글자 크기 축소 적용: 9.5pt]
-            win.document.write('<style>body {{ font-family: "Malgun Gothic", sans-serif; padding: 30px; line-height: 1.5; color: #333; max-width: 21cm; margin: auto; }} h1 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; font-size: 20pt; }} .dept {{ text-align: right; font-weight: bold; margin-bottom: 20px; font-size: 10pt; color: #666; }} h2, h3, h4 {{ margin-top: 1.2em; color: #111; }} p, li {{ font-size: 9.5pt; }}</style>');
-            win.document.write('</head><body>');
-            win.document.write('<h1>대입 컨설팅 결과 리포트</h1>');
-            win.document.write('<div class="dept">지원학과: {target_major}</div>');
-            win.document.write('<div id="content"></div>');
-            var jsCode = `
-                const b64 = "{b64_md}";
-                const binString = atob(b64);
-                const bytes = new Uint8Array(binString.length);
-                for (let i = 0; i < binString.length; i++) {{ bytes[i] = binString.charCodeAt(i); }}
-                const rawMd = new TextDecoder('utf-8').decode(bytes);
-                document.getElementById('content').innerHTML = marked.parse(rawMd);
-                setTimeout(function() {{ window.print(); win.close(); }}, 1000);
-            `;
-            var script = win.document.createElement('script'); script.textContent = jsCode;
-            win.document.body.appendChild(script);
-            win.document.close();
-        }}
-        </script>
-        """
-        components.html(print_code, height=60)
-        st.info("💡 인쇄 시 글자 크기가 9.5pt로 조정되어 한 장에 더 많은 내용이 담기도록 최적화되었습니다.")
+        st.subheader("🖨️ 인쇄용 리포트")
+        st.markdown('<button class="print-btn-style" onclick="window.print()">📄 즉시 인쇄 또는 PDF 저장</button>', unsafe_allow_html=True)
         st.markdown("---")
+        st.markdown(f'<div class="print-only"><h1 style="text-align: center;">대입 컨설팅 결과 리포트</h1><p style="text-align: right; font-weight: bold;">지원학과: {target_major}</p><hr><div style="white-space: pre-wrap;">{clean_res}</div></div>', unsafe_allow_html=True)
         st.markdown(clean_res)
