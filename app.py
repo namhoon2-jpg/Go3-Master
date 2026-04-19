@@ -17,7 +17,7 @@ try:
     
     genai.configure(api_key=API_KEY)
     # Gemini 3 Flash 모델 사용 (유료 티어 성능)
-    model = genai.GenerativeModel('gemini-3-flash')
+    model = genai.GenerativeModel('gemini-2.5-flash')
 except:
     st.error("⚠️ Secrets 설정(GEMINI_API_KEY, GSHEET_SCRIPT_URL)이 누락되었습니다.")
 
