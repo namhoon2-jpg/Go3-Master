@@ -6,6 +6,7 @@ import plotly.express as px
 import pdfplumber
 import requests
 import re
+import base64
 import json
 
 # ==========================================
@@ -183,14 +184,13 @@ if excel_file and pdf_file and target_major:
                 ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
-    # ------------------ Tab 4 (브라우저 보안 우회 인쇄) ------------------
+    # ------------------ Tab 4 (인쇄 로직 안전성 100% 보장) ------------------
     with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
         
-        # 파이썬 문자열을 자바스크립트에서 에러 없이 읽을 수 있도록 안전하게 변환
-        safe_json_res = json.dumps(clean_res)
+        # [핵심] 리포트 내용을 Base64로 암호화하여 따옴표/백틱 충돌 원천 차단
+        b64_md = base64.b64encode(clean_res.encode('utf-8')).decode('utf-8')
         
-        # 브라우저 차단을 우회하는 정통 자바스크립트 팝업 + 문서 쓰기 방식
         print_code = f"""
         <button onclick="openPrintWindow()" style="background-color:#ff4b4b; color:white; padding:12px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width: 100%; font-family: sans-serif; font-size: 16px;">
             📄 안전한 PDF 인쇄창 열기 (클릭)
@@ -198,46 +198,38 @@ if excel_file and pdf_file and target_major:
         
         <script>
         function openPrintWindow() {{
-            // 1. 새 창 열기 (사용자 클릭 이벤트라 차단 안 됨)
-            var printWindow = window.open('', '_blank');
-            if (!printWindow) {{
-                alert("브라우저의 팝업 차단이 설정되어 있습니다. 팝업을 허용해주세요!");
+            var win = window.open('', '_blank');
+            if (!win) {{
+                alert("팝업이 차단되었습니다. 주소창 오른쪽에서 팝업을 허용해주세요!");
                 return;
             }}
             
-            // 2. 새 창에 HTML 및 마크다운 변환기 심기
-            printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="utf-8">
-                <title>대입 컨설팅 리포트</title>
-                <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
-                <style>
-                    body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.6; color: #222; max-width: 21cm; margin: auto; }}
-                    h1 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 5px; }}
-                    .dept {{ text-align: right; color: #555; font-weight: bold; margin-bottom: 30px; font-size: 14px; }}
-                    h2, h3, h4 {{ margin-top: 1.5em; color: #111; }}
-                    p, li {{ font-size: 11pt; }}
-                </style>
-            </head>
-            <body>
-                <h1>대입 컨설팅 결과 리포트</h1>
-                <div class="dept">지원학과: {target_major}</div>
-                <div id="content"></div>
-                
-                <script>
-                    // 파이썬에서 넘겨받은 텍스트를 마크다운으로 렌더링
-                    var rawMd = {safe_json_res};
-                    document.getElementById('content').innerHTML = marked.parse(rawMd);
-                    
-                    // 렌더링 0.5초 후 인쇄창 호출
-                    setTimeout(function() {{ window.print(); }}, 500);
-                <\/script>
-            </body>
-            </html>
-            `);
-            printWindow.document.close();
+            // 새 창의 기본 뼈대 만들기
+            win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>대입 컨설팅 리포트</title>');
+            win.document.write('<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\\/script>');
+            win.document.write('<style>body {{ font-family: "Malgun Gothic", sans-serif; padding: 40px; line-height: 1.6; color: #222; max-width: 21cm; margin: auto; }} h1 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 5px; }} .dept {{ text-align: right; color: #555; font-weight: bold; margin-bottom: 30px; font-size: 14px; }} h2, h3, h4 {{ margin-top: 1.5em; color: #111; }} p, li {{ font-size: 11pt; }}</style>');
+            win.document.write('</head><body>');
+            win.document.write('<h1>대입 컨설팅 결과 리포트</h1>');
+            win.document.write('<div class="dept">지원학과: {target_major}</div>');
+            win.document.write('<div id="content"></div>');
+            
+            // 암호화된 데이터를 안전하게 풀어서 화면에 그리는 스크립트 주입
+            var jsCode = `
+                const b64 = "{b64_md}";
+                const binString = atob(b64);
+                const bytes = new Uint8Array(binString.length);
+                for (let i = 0; i < binString.length; i++) {{
+                    bytes[i] = binString.charCodeAt(i);
+                }}
+                const rawMd = new TextDecoder('utf-8').decode(bytes);
+                document.getElementById('content').innerHTML = marked.parse(rawMd);
+                setTimeout(function() {{ window.print(); }}, 800);
+            `;
+            
+            var script = win.document.createElement('script');
+            script.textContent = jsCode;
+            win.document.body.appendChild(script);
+            win.document.close();
         }}
         </script>
         """
