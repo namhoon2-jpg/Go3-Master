@@ -24,7 +24,7 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 데이터 가공 함수
+# 2. 속도 최적화: 데이터 가공 캐싱 처리
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -33,8 +33,10 @@ def sync_knowledge(new_content=None):
         return response.text if response.status_code == 200 else ""
     except: return ""
 
-def process_performance_data(file):
-    xls = pd.ExcelFile(file)
+@st.cache_data(show_spinner=False)
+def process_performance_data(file_bytes):
+    # 파일 바이트를 사용하여 캐싱 효율 극대화
+    xls = pd.ExcelFile(io.BytesIO(file_bytes))
     i_df, m_df = pd.DataFrame(), pd.DataFrame()
     if '학생부현황' in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name='학생부현황')
@@ -66,6 +68,8 @@ def process_performance_data(file):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
+import io
+
 # ==========================================
 # 3. 메인 UI 및 농어촌 옵션
 # ==========================================
@@ -74,7 +78,7 @@ st.title("🎓 고3 대입 전문 컨설팅")
 
 with st.sidebar:
     st.header("📋 학생 데이터 입력")
-    target_major = st.text_input("희망 학과", placeholder="예: 간호학과")
+    target_major = st.text_input("희망 학과", placeholder="예: 수학교육과")
     excel_file = st.file_uploader("1. 성적 엑셀", type=["xlsx"])
     pdf_file = st.file_uploader("2. 생기부 PDF", type="pdf")
     is_rural = st.checkbox("🌾 농어촌 전형 대상자 여부", value=False)
@@ -99,15 +103,14 @@ with st.sidebar:
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
         with st.spinner('보수적 정밀 분석 리포트 생성 중...'):
-            i_df, m_df = process_performance_data(excel_file)
+            i_df, m_df = process_performance_data(excel_file.getvalue())
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
             rural_inst = "이 학생은 [농어촌 전형] 대상자이므로, 대입 전략 수립 시 농어촌 전형 지원 분석을 반드시 포함할 것." if is_rural else ""
             
-            # [핵심 변경] AI가 제목을 쓰지 못하도록 강력하게 통제
             prompt = f"""
-            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함.
+            지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함. 명사형 종결어미 사용.
             {rural_inst}
             [경고] 리포트 맨 위에 어떠한 형태의 제목이나 인사말도 절대 작성하지 마시오. 무조건 [PART 1: 종합 진단] 이라는 글자로 바로 시작하시오.
             
@@ -125,7 +128,7 @@ if excel_file and pdf_file and target_major:
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # [핵심 변경] 제목이 생성되더라도 파이썬 코드로 강제 절단
+    # 제목 강제 절단 로직 유지
     res = st.session_state.analysis_result
     main_content = "[PART 1:" + res.split("[PART 1:")[1] if "[PART 1:" in res else res
     clean_res = re.sub(r'@.*?@', '', main_content, flags=re.DOTALL).strip()
@@ -153,7 +156,6 @@ if excel_file and pdf_file and target_major:
                 p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in [p.split(':') for p in pie_raw.group(1).split(',')]]
                 c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
             except: pass
-            
         st.markdown(part1_2.replace("[PART 1:", "### 📝 [PART 1]").replace("[PART 2:", "### 🎯 [PART 2]"))
 
     # ------------------ Tab 2 ------------------
@@ -164,7 +166,6 @@ if excel_file and pdf_file and target_major:
             f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
             f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
             st.markdown(f_p3)
-            
         if p4_raw:
             st.markdown("---")
             st.markdown("### 🎤 [PART 4] 면접 예상 질문 가이드")
@@ -184,57 +185,43 @@ if excel_file and pdf_file and target_major:
                 ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
-    # ------------------ Tab 4 (인쇄 로직 안전성 100% 보장) ------------------
+    # ------------------ Tab 4 (인쇄 로직 및 글자 크기 최적화) ------------------
     with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
-        
-        # [핵심] 리포트 내용을 Base64로 암호화하여 따옴표/백틱 충돌 원천 차단
         b64_md = base64.b64encode(clean_res.encode('utf-8')).decode('utf-8')
         
         print_code = f"""
         <button onclick="openPrintWindow()" style="background-color:#ff4b4b; color:white; padding:12px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width: 100%; font-family: sans-serif; font-size: 16px;">
             📄 안전한 PDF 인쇄창 열기 (클릭)
         </button>
-        
         <script>
         function openPrintWindow() {{
             var win = window.open('', '_blank');
-            if (!win) {{
-                alert("팝업이 차단되었습니다. 주소창 오른쪽에서 팝업을 허용해주세요!");
-                return;
-            }}
-            
-            // 새 창의 기본 뼈대 만들기
+            if (!win) {{ alert("팝업이 차단되었습니다. 허용해 주세요!"); return; }}
             win.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>대입 컨설팅 리포트</title>');
             win.document.write('<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\\/script>');
-            win.document.write('<style>body {{ font-family: "Malgun Gothic", sans-serif; padding: 40px; line-height: 1.6; color: #222; max-width: 21cm; margin: auto; }} h1 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 5px; }} .dept {{ text-align: right; color: #555; font-weight: bold; margin-bottom: 30px; font-size: 14px; }} h2, h3, h4 {{ margin-top: 1.5em; color: #111; }} p, li {{ font-size: 11pt; }}</style>');
+            // [글자 크기 축소 적용: 9.5pt]
+            win.document.write('<style>body {{ font-family: "Malgun Gothic", sans-serif; padding: 30px; line-height: 1.5; color: #333; max-width: 21cm; margin: auto; }} h1 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; font-size: 20pt; }} .dept {{ text-align: right; font-weight: bold; margin-bottom: 20px; font-size: 10pt; color: #666; }} h2, h3, h4 {{ margin-top: 1.2em; color: #111; }} p, li {{ font-size: 9.5pt; }}</style>');
             win.document.write('</head><body>');
             win.document.write('<h1>대입 컨설팅 결과 리포트</h1>');
             win.document.write('<div class="dept">지원학과: {target_major}</div>');
             win.document.write('<div id="content"></div>');
-            
-            // 암호화된 데이터를 안전하게 풀어서 화면에 그리는 스크립트 주입
             var jsCode = `
                 const b64 = "{b64_md}";
                 const binString = atob(b64);
                 const bytes = new Uint8Array(binString.length);
-                for (let i = 0; i < binString.length; i++) {{
-                    bytes[i] = binString.charCodeAt(i);
-                }}
+                for (let i = 0; i < binString.length; i++) {{ bytes[i] = binString.charCodeAt(i); }}
                 const rawMd = new TextDecoder('utf-8').decode(bytes);
                 document.getElementById('content').innerHTML = marked.parse(rawMd);
-                setTimeout(function() {{ window.print(); }}, 800);
+                setTimeout(function() {{ window.print(); win.close(); }}, 1000);
             `;
-            
-            var script = win.document.createElement('script');
-            script.textContent = jsCode;
+            var script = win.document.createElement('script'); script.textContent = jsCode;
             win.document.body.appendChild(script);
             win.document.close();
         }}
         </script>
         """
         components.html(print_code, height=60)
-        
-        st.info("💡 위 버튼을 클릭하면 새로운 창이 뜨면서 즉시 인쇄 화면으로 연결됩니다. (혹시 알림이 뜨면 팝업을 허용해 주세요)")
+        st.info("💡 인쇄 시 글자 크기가 9.5pt로 조정되어 한 장에 더 많은 내용이 담기도록 최적화되었습니다.")
         st.markdown("---")
         st.markdown(clean_res)
