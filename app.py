@@ -1,11 +1,12 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import google.generativeai as genai
 import pandas as pd
 import plotly.express as px
 import pdfplumber
 import requests
 import re
-import base64
+import json
 
 # ==========================================
 # 1. 보안 및 API 설정
@@ -103,11 +104,11 @@ if excel_file and pdf_file and target_major:
             
             rural_inst = "이 학생은 [농어촌 전형] 대상자이므로, 대입 전략 수립 시 농어촌 전형 지원 분석을 반드시 포함할 것." if is_rural else ""
             
-            # [수정] 제목 생성 절대 금지 지침 추가
+            # [핵심 변경] AI가 제목을 쓰지 못하도록 강력하게 통제
             prompt = f"""
             지방 일반고 전문 컨설턴트로서 {target_major} 지망 학생을 보수적으로 분석함.
             {rural_inst}
-            [경고] 리포트 맨 위에 어떠한 형태의 제목(Title)이나 인사말도 절대 작성하지 말고, 무조건 [PART 1: 종합 진단] 이라는 글자로 시작할 것.
+            [경고] 리포트 맨 위에 어떠한 형태의 제목이나 인사말도 절대 작성하지 마시오. 무조건 [PART 1: 종합 진단] 이라는 글자로 바로 시작하시오.
             
             [PART 1: 종합 진단] 성적 분석 및 전형 적합성 기술.
             [PART 2: 대입 전략] 대학 라인 제안 및 추천 도서.
@@ -123,7 +124,7 @@ if excel_file and pdf_file and target_major:
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # 파싱 로직 (제목 강제 삭제)
+    # [핵심 변경] 제목이 생성되더라도 파이썬 코드로 강제 절단
     res = st.session_state.analysis_result
     main_content = "[PART 1:" + res.split("[PART 1:")[1] if "[PART 1:" in res else res
     clean_res = re.sub(r'@.*?@', '', main_content, flags=re.DOTALL).strip()
@@ -182,48 +183,66 @@ if excel_file and pdf_file and target_major:
                 ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
                 st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
-    # ------------------ Tab 4 (인쇄 로직 완전 변경) ------------------
+    # ------------------ Tab 4 (브라우저 보안 우회 인쇄) ------------------
     with tab4:
         st.markdown("### 🖨️ 인쇄용 핵심 요약 리포트")
         
-        # 새 탭에서 열릴 순수 HTML 문서 생성 (스트림릿 간섭 0%)
-        html_template = f"""<!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8">
-            <title>고3 대입 전문 컨설팅 리포트</title>
-            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-            <style>
-                body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.7; color: #333; max-width: 21cm; margin: auto; }}
-                .header {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 15px; margin-bottom: 30px; }}
-                .header h1 {{ margin: 0; font-size: 24pt; border: none; }}
-                .dept {{ text-align: right; font-weight: bold; color: #555; margin-top: 10px; font-size: 12pt; }}
-            </style>
-        </head>
-        <body>
-            <div class="header">
+        # 파이썬 문자열을 자바스크립트에서 에러 없이 읽을 수 있도록 안전하게 변환
+        safe_json_res = json.dumps(clean_res)
+        
+        # 브라우저 차단을 우회하는 정통 자바스크립트 팝업 + 문서 쓰기 방식
+        print_code = f"""
+        <button onclick="openPrintWindow()" style="background-color:#ff4b4b; color:white; padding:12px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width: 100%; font-family: sans-serif; font-size: 16px;">
+            📄 안전한 PDF 인쇄창 열기 (클릭)
+        </button>
+        
+        <script>
+        function openPrintWindow() {{
+            // 1. 새 창 열기 (사용자 클릭 이벤트라 차단 안 됨)
+            var printWindow = window.open('', '_blank');
+            if (!printWindow) {{
+                alert("브라우저의 팝업 차단이 설정되어 있습니다. 팝업을 허용해주세요!");
+                return;
+            }}
+            
+            // 2. 새 창에 HTML 및 마크다운 변환기 심기
+            printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8">
+                <title>대입 컨설팅 리포트</title>
+                <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+                <style>
+                    body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.6; color: #222; max-width: 21cm; margin: auto; }}
+                    h1 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 5px; }}
+                    .dept {{ text-align: right; color: #555; font-weight: bold; margin-bottom: 30px; font-size: 14px; }}
+                    h2, h3, h4 {{ margin-top: 1.5em; color: #111; }}
+                    p, li {{ font-size: 11pt; }}
+                </style>
+            </head>
+            <body>
                 <h1>대입 컨설팅 결과 리포트</h1>
                 <div class="dept">지원학과: {target_major}</div>
-            </div>
-            <textarea id="raw-md" style="display:none;">{clean_res.replace('</textarea>', '')}</textarea>
-            <div id="content"></div>
-            <script>
-                document.getElementById('content').innerHTML = marked.parse(document.getElementById('raw-md').value);
-                setTimeout(function() {{ window.print(); }}, 500);
-            </script>
-        </body>
-        </html>"""
+                <div id="content"></div>
+                
+                <script>
+                    // 파이썬에서 넘겨받은 텍스트를 마크다운으로 렌더링
+                    var rawMd = {safe_json_res};
+                    document.getElementById('content').innerHTML = marked.parse(rawMd);
+                    
+                    // 렌더링 0.5초 후 인쇄창 호출
+                    setTimeout(function() {{ window.print(); }}, 500);
+                <\/script>
+            </body>
+            </html>
+            `);
+            printWindow.document.close();
+        }}
+        </script>
+        """
+        components.html(print_code, height=60)
         
-        # HTML을 Base64로 인코딩하여 하이퍼링크에 삽입
-        b64_html = base64.b64encode(html_template.encode('utf-8')).decode('utf-8')
-        data_uri = f"data:text/html;charset=utf-8;base64,{b64_html}"
-        
-        st.markdown(f"""
-            <a href="{data_uri}" target="_blank" style="display:block; background-color:#ff4b4b; color:white; text-align:center; padding:12px; border-radius:8px; text-decoration:none; font-weight:bold; margin-bottom:20px;">
-                📄 새 탭에서 PDF 인쇄창 열기 (클릭)
-            </a>
-            """, unsafe_allow_html=True)
-            
-        st.info("💡 위 버튼을 클릭하면 스트림릿 창을 벗어나 **새로운 브라우저 탭**이 열리며 완벽한 리포트가 인쇄됩니다.")
+        st.info("💡 위 버튼을 클릭하면 새로운 창이 뜨면서 즉시 인쇄 화면으로 연결됩니다. (혹시 알림이 뜨면 팝업을 허용해 주세요)")
         st.markdown("---")
         st.markdown(clean_res)
