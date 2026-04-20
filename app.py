@@ -25,51 +25,45 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (다중 페이지 인쇄 핵폭탄급 강제 해제)
+# 2. 화면 및 인쇄 스타일 (정밀 타격 CSS)
 # ==========================================
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
     
     @media print {
-        /* 1. 불필요한 UI 완벽 숨기기 */
-        [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, .stTabs [role="tablist"] {
+        /* 1. 불필요한 UI 숨기기 */
+        [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, [data-baseweb="tab-list"] {
             display: none !important;
         }
         
-        /* 2. [핵심] 화면 내 모든 요소의 스크롤 및 높이 제한 영구 파괴 */
-        * {
-            overflow: visible !important;
+        /* 2. [핵심 해결] Plotly를 망가뜨리지 않고 스트림릿 컨테이너 스크롤만 해제 */
+        html, body, #root, .stApp, [data-testid="stAppViewContainer"], 
+        .main, [data-testid="stMainBlockContainer"], .block-container {
             height: auto !important;
+            min-height: auto !important;
             max-height: none !important;
-        }
-        
-        /* 3. 스트림릿 메인 컨테이너들을 정적(Static) 블록으로 강제 전환 */
-        html, body, .stApp, .main, 
-        [data-testid="stAppViewContainer"], 
-        [data-testid="stMainBlockContainer"],
-        .block-container {
+            overflow: visible !important;
             position: static !important;
             display: block !important;
-            width: auto !important;
-            margin: 0 !important;
-            padding: 0 !important;
         }
-
-        /* 4. 차트 우측 잘림 방지 (2단 컬럼을 1단으로 강제 정렬) */
+        
+        /* 3. 우측 잘림 방지: 2단 배열을 1단 세로 정렬로 강제 변환 */
+        [data-testid="stHorizontalBlock"] {
+            display: block !important;
+            width: 100% !important;
+        }
         [data-testid="column"], [data-testid="stColumn"] {
             width: 100% !important;
-            flex: none !important;
             display: block !important;
-            margin-bottom: 20px !important;
+            margin-bottom: 30px !important;
             page-break-inside: avoid !important;
         }
         
-        .stPlotlyChart { width: 100% !important; page-break-inside: avoid !important; }
-        
-        /* 5. 페이지 넘김 시 글자 및 차트 반토막 방지 */
-        h2, h3, h4 { page-break-after: avoid; margin-top: 25px; border-left: 5px solid #2e6bc6; padding-left: 10px; }
-        p, li { font-size: 11.5pt !important; line-height: 1.6; color: #000; page-break-inside: auto; }
+        /* 4. 그래프 및 텍스트 쪼개짐 방지 */
+        .stPlotlyChart { page-break-inside: avoid !important; margin-bottom: 20px !important; }
+        h2, h3, h4 { page-break-after: avoid; margin-top: 20px; border-left: 5px solid #2e6bc6; padding-left: 10px; }
+        p, li { font-size: 12pt !important; line-height: 1.6; color: #000; }
         
         @page { margin: 1.5cm; }
     }
@@ -172,7 +166,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (전형 추천 논리 완벽 통제)
+# 5. 분석 엔진
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -191,24 +185,24 @@ if excel_file and pdf_file and target_major:
             1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식 작성.
             2. 인사말 금지. [PART 1]부터 즉시 시작. 철저한 음슴체(~함, ~임) 사용.
             3. 마지막 두 줄은 반드시 아래 태그여야 함.
+               단, 예시 숫자를 베끼지 말고 **반드시 본인의 분석 결과와 일치하도록 숫자를 계산**하여 넣을 것.
                @PIE [교과: X, 종합: Y, 정시: Z] @ (X, Y, Z에는 실제 비율 숫자 기입, 합계 100)
                @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100 숫자)
 
             [🔥 전형 추천 및 데이터 연동 절대 원칙]
-            1. **교과 vs 종합 유불리 엄격 판단**: 생기부 기록이 빈약하여 본인이 매긴 @RADAR 방사형 그래프의 점수가 전반적으로 낮다면(예: 60~70점대 이하), **절대 종합 전형을 1순위로 추천하지 말 것.** 이 경우 무조건 객관적 내신 수치로 승부하는 **'교과 전형'의 비중(X)을 70~80% 이상으로 압도적으로 높게 배정**할 것.
-            2. 방사형(RADAR) 점수와 파이(PIE) 차트의 추천 비중은 완벽한 인과관계를 가져야 함.
-            3. [PART 2] 텍스트에서 1순위로 추천한 전형이 반드시 @PIE 태그에서도 가장 높은 비율을 차지해야 함.
+            1. **교과 vs 종합 유불리 엄격 판단**: 생기부 기록이 빈약하여 본인이 매긴 @RADAR 방사형 그래프의 점수가 전반적으로 낮다면, 절대 종합 전형을 1순위로 추천하지 말 것. 이 경우 무조건 객관적 내신 수치로 승부하는 '교과 전형'의 비중(X)을 압도적으로 높게 배정할 것.
+            2. [PART 2] 텍스트에서 1순위로 추천한 전형이 반드시 @PIE 태그에서도 가장 높은 비율을 차지해야 함.
 
             [작성 가이드]
             [PART 1] 종합 진단
             - 내신/모의고사 등급 분석 (수치 기반)
-            - 전공 관련 세특 누락/부실 지적 필수 (반드시 개괄식)
+            - 전공 관련 세특 누락/부실 지적 필수 (개괄식)
 
             [PART 2] 대입 전략, 농어촌 전략, 생기부 보완, 추천 도서
-            - 전형별 액션 플랜 (개괄식): 교과전형, 종합전형 등의 제목에서 '(농어촌)' 표기를 삭제할 것. 농어촌 관련 특이사항은 해당 전형 하위 항목에 자연스럽게 포함하여 분석할 것.
-            - **[농어촌 전형 전략 (주의!)]**: 농어촌 전형은 매년 입결 컷의 변동성이 매우 큰 전형임. 절대 "무조건 유리하다"고 단정하지 말 것. 안정/적정 지원은 일반 전형으로 고려하되, 농어촌 전형은 상향 지원 시 합격 가능성을 보완하는 '전략적 조커'로 활용하라는 냉정한 가이드라인을 제시할 것.
+            - 전형별 액션 플랜 (개괄식): 교과전형, 종합전형 등의 제목에서 '(농어촌)' 표기를 삭제할 것. 농어촌 관련 특이사항은 해당 전형 하위 항목에 자연스럽게 포함.
+            - **[농어촌 전형 전략]**: 농어촌 전형은 매년 입결 컷의 변동성이 매우 큰 전형임. 절대 "무조건 유리하다"고 단정하지 말 것. 안정/적정 지원은 일반 전형으로 고려하되, 농어촌 전형은 상향 지원 시 합격 가능성을 보완하는 '전략적 조커'로 활용하라는 냉정한 가이드라인 제시.
             - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시.
-            - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
+            - 추천 도서 3권: 도서명과 선정 이유를 1문장으로 아주 짧고 간결하게 작성.
 
             [PART 3] 심화 탐구 및 세특 예시
             - 탐구 가이드(3개): 주제: / 종적/횡적 근거: (생기부 출처 필수) / 탐구 방법:
