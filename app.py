@@ -25,47 +25,55 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (정밀 타격 CSS)
+# 2. 화면 및 인쇄 스타일 (인쇄 엔진 전면 재설계)
 # ==========================================
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
     
     @media print {
-        /* 1. 불필요한 UI 숨기기 */
+        /* 1. 스트림릿 기본 프레임워크 족쇄 완벽 해제 */
+        html, body, #root, .stApp, 
+        [data-testid="stAppViewContainer"], 
+        [data-testid="stMainBlockContainer"],
+        [data-testid="stVerticalBlock"],
+        .main, .block-container {
+            display: block !important;
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            position: static !important;
+        }
+
+        /* 2. 불필요한 UI 및 사이드바 제거 */
         [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, [data-baseweb="tab-list"] {
             display: none !important;
         }
-        
-        /* 2. [핵심 해결] Plotly를 망가뜨리지 않고 스트림릿 컨테이너 스크롤만 해제 */
-        html, body, #root, .stApp, [data-testid="stAppViewContainer"], 
-        .main, [data-testid="stMainBlockContainer"], .block-container {
-            height: auto !important;
-            min-height: auto !important;
-            max-height: none !important;
-            overflow: visible !important;
-            position: static !important;
-            display: block !important;
-        }
-        
-        /* 3. 우측 잘림 방지: 2단 배열을 1단 세로 정렬로 강제 변환 */
+
+        /* 3. 레이아웃 강제 1단 정렬 (우측 잘림 방지) */
         [data-testid="stHorizontalBlock"] {
             display: block !important;
             width: 100% !important;
         }
         [data-testid="column"], [data-testid="stColumn"] {
             width: 100% !important;
+            max-width: 100% !important;
             display: block !important;
             margin-bottom: 30px !important;
             page-break-inside: avoid !important;
         }
+
+        /* 4. 리포트 가시성 강화 */
+        .main .block-container { padding: 0 !important; margin: 0 !important; }
+        h2 { text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 30px; }
+        h3 { margin-top: 30px; border-left: 6px solid #1a73e8; padding-left: 12px; page-break-after: avoid; }
+        p, li { font-size: 12.5pt !important; line-height: 1.7; color: #000; }
         
-        /* 4. 그래프 및 텍스트 쪼개짐 방지 */
-        .stPlotlyChart { page-break-inside: avoid !important; margin-bottom: 20px !important; }
-        h2, h3, h4 { page-break-after: avoid; margin-top: 20px; border-left: 5px solid #2e6bc6; padding-left: 10px; }
-        p, li { font-size: 12pt !important; line-height: 1.6; color: #000; }
-        
-        @page { margin: 1.5cm; }
+        /* 5. 그래프 및 리스트 잘림 방지 */
+        .stPlotlyChart { page-break-inside: avoid !important; margin-bottom: 40px !important; }
+        li { page-break-inside: avoid; }
+
+        @page { size: auto; margin: 2cm; }
     }
     
     li { margin-bottom: 8px; }
@@ -166,7 +174,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진
+# 5. 분석 엔진 (컨설팅 로직 최적화)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -182,34 +190,24 @@ if excel_file and pdf_file and target_major:
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:12000]}), 지식({k_base[:5000]})
             
             [절대 규칙: 가독성 및 형식]
-            1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식 작성.
+            1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식으로 작성.
             2. 인사말 금지. [PART 1]부터 즉시 시작. 철저한 음슴체(~함, ~임) 사용.
             3. 마지막 두 줄은 반드시 아래 태그여야 함.
-               단, 예시 숫자를 베끼지 말고 **반드시 본인의 분석 결과와 일치하도록 숫자를 계산**하여 넣을 것.
-               @PIE [교과: X, 종합: Y, 정시: Z] @ (X, Y, Z에는 실제 비율 숫자 기입, 합계 100)
+               @PIE [교과: X, 종합: Y, 정시: Z] @ (X, Y, Z 실제 비율 기입, 합계 100)
                @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100 숫자)
 
-            [🔥 전형 추천 및 데이터 연동 절대 원칙]
-            1. **교과 vs 종합 유불리 엄격 판단**: 생기부 기록이 빈약하여 본인이 매긴 @RADAR 방사형 그래프의 점수가 전반적으로 낮다면, 절대 종합 전형을 1순위로 추천하지 말 것. 이 경우 무조건 객관적 내신 수치로 승부하는 '교과 전형'의 비중(X)을 압도적으로 높게 배정할 것.
-            2. [PART 2] 텍스트에서 1순위로 추천한 전형이 반드시 @PIE 태그에서도 가장 높은 비율을 차지해야 함.
+            [🔥 전형 추천 절대 원칙]
+            1. **교과 vs 종합 유불리 판단**: 본인이 매긴 @RADAR 방사형 그래프의 점수가 전반적으로 낮다면 절대 종합 전형을 1순위로 추천하지 말 것. 무조건 객관적 내신 수치로 승부하는 '교과 전형'의 비중(X)을 압도적으로 높게 배정할 것.
+            2. [PART 2] 텍스트 분석 결과가 반드시 @PIE 태그의 추천 비율 1위와 일치해야 함.
 
             [작성 가이드]
-            [PART 1] 종합 진단
-            - 내신/모의고사 등급 분석 (수치 기반)
-            - 전공 관련 세특 누락/부실 지적 필수 (개괄식)
-
-            [PART 2] 대입 전략, 농어촌 전략, 생기부 보완, 추천 도서
-            - 전형별 액션 플랜 (개괄식): 교과전형, 종합전형 등의 제목에서 '(농어촌)' 표기를 삭제할 것. 농어촌 관련 특이사항은 해당 전형 하위 항목에 자연스럽게 포함.
-            - **[농어촌 전형 전략]**: 농어촌 전형은 매년 입결 컷의 변동성이 매우 큰 전형임. 절대 "무조건 유리하다"고 단정하지 말 것. 안정/적정 지원은 일반 전형으로 고려하되, 농어촌 전형은 상향 지원 시 합격 가능성을 보완하는 '전략적 조커'로 활용하라는 냉정한 가이드라인 제시.
-            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시.
-            - 추천 도서 3권: 도서명과 선정 이유를 1문장으로 아주 짧고 간결하게 작성.
-
-            [PART 3] 심화 탐구 및 세특 예시
-            - 탐구 가이드(3개): 주제: / 종적/횡적 근거: (생기부 출처 필수) / 탐구 방법:
-            - NEIS 기재용 세특 예시(3개): 과목명: / 내용: (각 200자 내외)
-
-            [PART 4] 면접 예상 질문
-            - 질문 3개: 질문: / 모범 답안: / 준비 방법:
+            [PART 1] 종합 진단: 내신/모의고사 등급 추이 분석 및 핵심 과목 세특 누락/부실 지적.
+            [PART 2] 대입 전략: 
+                     - 농어촌 대상자일 경우 입결 변동성을 경고하며 '안정/적정은 일반 전형, 상향은 농어촌 전형' 전략 제시. 
+                     - 생기부 보완 전략 제시. 
+                     - 추천 도서 3권(선정 이유 아주 짧게).
+            [PART 3] 심화 탐구 및 세특 예시: 주제/근거/방법 가이드 3개 및 NEIS 기재용 세특 문구 예시 3개(각 200자).
+            [PART 4] 면접 예상 질문: 질문/답안/준비 가이드 3개.
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
@@ -223,16 +221,13 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
+    # 가시성 강화 변환 (아이콘 추가)
     p2 = re.sub(r'(?i)농어촌\s*전형\s*전략|농어촌\s*전형\s*유불리\s*판단', '⚖️ **농어촌 전형 전략**', p2)
     p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '🛠️ **생기부 보완 전략**', p2)
-
     p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3)
     p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', p3)
     p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', p3)
     p3 = re.sub(r'(?i)NEIS\s*기재용\s*세특\s*문구\s*예시\s*:', '### ✍️ NEIS 기재용 세특 문구 예시', p3)
-    p3 = re.sub(r'(?i)과목명\s*:', '📘 **과목명:**', p3)
-    p3 = re.sub(r'(?i)내용\s*:', '📝 **내용:**', p3)
-    
     p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4)
     p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
     p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', p4)
@@ -253,7 +248,7 @@ if excel_file and pdf_file and target_major:
                 p_items = [it.split(':') for it in p_match.group(1).split(',')]
                 p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
                 c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율"), use_container_width=True, key=f"p_{suffix}")
-            except: c3.warning("전형 차트 데이터 형식 오류")
+            except: pass
         
         r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if r_match:
@@ -263,7 +258,7 @@ if excel_file and pdf_file and target_major:
                 fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
                 fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단")
                 c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
-            except: c4.warning("역량 차트 데이터 형식 오류")
+            except: pass
 
     # --- 탭 구성 ---
     tab1, tab2, tab3, tab4 = st.tabs(["📊 진단 및 전략", "💡 탐구/면접 가이드", "💬 실시간 상담", "🖨️ 리포트 인쇄"])
@@ -273,7 +268,7 @@ if excel_file and pdf_file and target_major:
         render_all_charts("tab1")
         st.divider()
         st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}")
-        st.markdown(f"### 🎯 [PART 2] 대입 전략 및 생기부 보완\n\n{p2}")
+        st.markdown(f"### 🎯 [PART 2] 대입 전략 및 보완책\n\n{p2}")
 
     with tab2:
         st.markdown(f"### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}")
@@ -283,7 +278,7 @@ if excel_file and pdf_file and target_major:
     with tab3:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        if p_chat := st.chat_input("추가 질문을 입력하세요..."):
+        if p_chat := st.chat_input("질문 입력..."):
             st.session_state.chat_history.append({"role": "user", "content": p_chat})
             with st.chat_message("user"): st.markdown(p_chat)
             with st.chat_message("assistant"):
@@ -292,15 +287,16 @@ if excel_file and pdf_file and target_major:
 
     with tab4:
         st.markdown("""
-        <div class="no-print" style="padding: 15px; background-color: #f1f8ff; border-radius: 8px; border-left: 5px solid #1a73e8; margin-bottom: 20px;">
-            <h4 style="margin-top: 0; color: #1a73e8;">🖨️ 리포트 다중 페이지 인쇄 방법</h4>
-            <p style="margin-bottom: 5px; font-size: 15px; color: #333;"><b>1.</b> 키보드에서 <b>Ctrl + P</b> (Mac은 Cmd + P)를 누르세요.</p>
-            <p style="margin-bottom: 0; font-size: 15px; color: #333;"><b>2.</b> 인쇄 설정(더보기)에서 <b>'배경 그래픽(Background graphics)'</b>을 반드시 체크해야 차트가 인쇄됩니다.</p>
+        <div class="no-print" style="padding: 20px; background-color: #e8f0fe; border-radius: 12px; border: 2px solid #1a73e8; margin-bottom: 30px;">
+            <h3 style="margin-top: 0; color: #1a73e8; border: none;">🖨️ 리포트 통합 인쇄 (전체 페이지)</h3>
+            <p style="font-size: 16px; font-weight: bold; color: #333;">1. 키보드 Ctrl + P 를 눌러주세요.</p>
+            <p style="font-size: 15px; color: #555;">2. 설정에서 <b>'배경 그래픽'</b>을 체크해야 그래프가 정상 출력됩니다.</p>
+            <p style="font-size: 15px; color: #d93025;">※ 모든 차트와 텍스트가 1페이지 잘림 없이 순차적으로 인쇄됩니다.</p>
         </div>
         """, unsafe_allow_html=True)
         st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
         render_all_charts("tab4")
         st.divider()
-        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}\n\n### 🎯 [PART 2] 대입 전략 및 생기부 보완\n\n{p2}\n\n### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}\n\n### 🎤 [PART 4] 면접 질문\n\n{p4}")
+        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}\n\n### 🎯 [PART 2] 대입 전략 및 보완책\n\n{p2}\n\n### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}\n\n### 🎤 [PART 4] 면접 질문\n\n{p4}")
 else:
     st.info("👈 왼쪽 사이드바에 정보를 입력하고 파일을 업로드해 주세요.")
