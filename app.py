@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import pdfplumber
 import requests
 import re
@@ -98,22 +99,17 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
-# [핵심 로직] AI의 불필요한 제목 서식을 잘라내고 순수 텍스트만 추출하는 함수
 def extract_section(text, start_keyword, end_keyword=None):
-    if end_keyword:
-        pattern = rf"\[{start_keyword}\].*?(?=\[{end_keyword}\]|$)"
-    else:
-        pattern = rf"\[{start_keyword}\].*"
+    if end_keyword: pattern = rf"\[{start_keyword}\].*?(?=\[{end_keyword}\]|$)"
+    else: pattern = rf"\[{start_keyword}\].*"
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if not match: return ""
-    
     content = match.group(0).strip()
-    # 첫 번째 줄(AI가 생성한 [PART 1] 등의 지저분한 제목)을 강제로 삭제
     content = re.sub(rf"^.*?\[{start_keyword}\].*?(?=\n|$)", "", content, flags=re.IGNORECASE).strip()
     return content
 
 # ==========================================
-# 4. 메인 UI 구성 (버전명 제거)
+# 4. 메인 UI 구성
 # ==========================================
 st.set_page_config(page_title="고3 대입 전문 컨설팅 시스템", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅 시스템")
@@ -139,11 +135,11 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 로직 (프롬프트 엄격 통제)
+# 5. 분석 로직 (프롬프트 강화 - 레이더 차트 수치 포함)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('AI 엔진이 데이터를 분석 중입니다...'):
+        with st.spinner('AI 엔진이 데이터를 정밀 분석 중입니다...'):
             i_df, m_df = process_performance_data(excel_file.getvalue())
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
@@ -155,17 +151,27 @@ if excel_file and pdf_file and target_major:
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:12000]}), 지식({k_base[:5000]})
             
             [절대 준수 규칙]
-            1. "자네 학생의...", "제안합니다" 같은 서론/결론/인사말 절대 금지. 즉시 [PART 1]부터 출력할 것.
+            1. 인사말, 서론, 결론 절대 금지. 즉시 [PART 1]부터 출력할 것.
             2. 모든 문장은 글머리 기호('-')를 사용한 개괄식 작성.
-            3. 철저한 '음슴체(~함, ~임, ~됨)' 사용. (존댓말, 반말 절대 금지).
+            3. 철저한 '음슴체(~함, ~임, ~됨)' 사용.
             4. 정시 합격 확률이 낮으면 @PIE 내 정시 비중을 10% 이하로 조정.
+            5. [PART 1]의 진단 내용과 마지막 @PIE의 추천 전형 비중이 완벽하게 논리적으로 일치해야 함.
 
-            [PART 1] 성적 및 전형 적합성 요약
-            [PART 2] 대입 전략 및 추천 도서 목록
-            [PART 3] 심화 탐구 가이드 (반드시 "주제:", "종적/횡적 근거:", "탐구 방법:" 키워드를 사용하여 3가지 작성)
-            [PART 4] 면접 예상 질문 (농어촌 관련 질문 금지. 전공 적합성 질문만 3가지. 반드시 "질문:", "모범 답안:", "준비 방법:" 키워드 사용)
+            [작성 가이드]
+            [PART 1] 종합 진단: 
+                     - 내신 등급 추이, 모의고사 강/약점, 전공 적합성을 수치와 데이터를 기반으로 4줄 이상 매우 상세하고 풍성하게 분석할 것.
+                     - 특히, 지원 전공({target_major})과 관련하여 반드시 있어야 할 핵심 과목(예: 수학, 과학 등) 중 세특 기록이 누락되었거나 내용이 부실한 부분을 날카롭게 지적할 것.
+            [PART 2] 대입 전략 및 추천 도서: 
+                     - 전략: 남은 학기 동안의 성적 관리 및 생기부 보완을 위한 실질적이고 구체적인 액션 플랜을 4줄 이상 제시.
+                     - 추천 도서: 지원 학과와 관련된 심화 추천 도서 3권과 그 이유.
+            [PART 3] 심화 탐구 가이드 (3가지 작성)
+                     - 반드시 "주제:", "종적/횡적 근거:", "탐구 방법:" 키워드를 사용할 것.
+                     - "종적/횡적 근거:" 작성 시 허구의 내용을 지어내지 말고, 반드시 제공된 생기부 데이터에서 정확한 출처(예: '1학년 1학기 자율활동의 ~내용')를 명시할 것.
+            [PART 4] 면접 예상 질문: 농어촌 질문 금지. 전공 심화 질문 3가지. "모범 답안"과 "준비 방법"을 실전에서 바로 쓸 수 있도록 압도적으로 디테일하게 작성할 것. (반드시 "질문:", "모범 답안:", "준비 방법:" 키워드 사용)
 
-            마지막 줄에 반드시 @PIE [교과: 60, 정시: 10, 종합: 30] @ 형식으로 추천 비중 포함.
+            마지막 줄에 반드시 아래 두 가지 태그를 차례대로 포함할 것.
+            @PIE [교과: 60, 정시: 10, 종합: 30] @
+            @RADAR [전공적합성: 85, 학업역량: 70, 진로탐색: 90, 리더십/인성: 80, 발전가능성: 75] @ (각 100점 만점으로 생기부를 냉정하게 평가할 것)
             """
             
             response = model.generate_content(prompt)
@@ -178,13 +184,11 @@ if excel_file and pdf_file and target_major:
     res = st.session_state.analysis_result
     clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL).strip()
 
-    # 각 파트별 텍스트 추출 (AI의 지저분한 제목은 함수 내에서 삭제됨)
     p1_body = extract_section(clean_res, "PART 1", "PART 2")
     p2_body = extract_section(clean_res, "PART 2", "PART 3")
     p3_body = extract_section(clean_res, "PART 3", "PART 4")
     p4_body = extract_section(clean_res, "PART 4")
 
-    # V58 감성 복구: PART 3, 4 키워드 아이콘화 및 가독성 처리
     f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_body)
     f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
     f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
@@ -193,12 +197,11 @@ if excel_file and pdf_file and target_major:
     f_p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', f_p4)
     f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
 
-    # 인쇄용 마크다운 (코드에서 직접 크고 굵은 헤더 지정)
     final_report_markdown = f"""
 ### 📝 [PART 1] 종합 진단
 {p1_body}
 
-### 🎯 [PART 2] 대입 전략
+### 🎯 [PART 2] 대입 전략 및 추천 도서
 {p2_body}
 
 ### 🚀 [PART 3] 심화 탐구 가이드
@@ -211,22 +214,56 @@ if excel_file and pdf_file and target_major:
     tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약 인쇄"])
 
     with tab1:
-        st.subheader("📊 성적 분석 및 전형 추천")
-        c1, c2, c3 = st.columns(3)
-        if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
-        if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
+        st.subheader("📊 성적 및 생기부 역량 분석")
         
-        pie_raw = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
-        if pie_raw:
-            try:
-                p_items = [it.split(':') for it in pie_raw.group(1).split(',')]
-                p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items]
-                c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
-            except: pass
+        # 4분할 레이아웃 적용 (내신, 모의고사, 추천전형, 생기부 레이더)
+        col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
         
-        # UI에서 크고 굵은 마크다운 헤더를 직접 부여
+        with col1:
+            if not st.session_state.i_df.empty: 
+                st.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
+        
+        with col2:
+            if not st.session_state.m_df.empty: 
+                st.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
+        
+        with col3:
+            pie_raw = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
+            if pie_raw:
+                try:
+                    p_items = [it.split(':') for it in pie_raw.group(1).split(',')]
+                    p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items]
+                    st.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
+                except: pass
+
+        with col4:
+            radar_raw = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res)
+            if radar_raw:
+                try:
+                    r_items = [it.split(':') for it in radar_raw.group(1).split(',')]
+                    r_labels = [k.strip() for k, v in r_items]
+                    r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
+                    
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatterpolar(
+                        r=r_values + [r_values[0]], # 닫힌 다각형을 위해 첫 값 추가
+                        theta=r_labels + [r_labels[0]],
+                        fill='toself',
+                        name='생기부 역량'
+                    ))
+                    fig.update_layout(
+                        polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                        showlegend=False,
+                        title="생기부 종합 역량 진단"
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                except Exception as e:
+                    st.error(f"레이더 차트 생성 오류: {e}")
+        
+        st.divider()
         st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1_body}")
-        st.markdown(f"### 🎯 [PART 2] 대입 전략\n\n{p2_body}")
+        st.markdown(f"### 🎯 [PART 2] 대입 전략 및 추천 도서\n\n{p2_body}")
 
     with tab2:
         st.markdown(f"### 🚀 [PART 3] 심화 탐구 가이드\n\n{f_p3}")
