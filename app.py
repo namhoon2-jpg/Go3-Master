@@ -1,5 +1,4 @@
 import streamlit as st
-import google.generativeai as genai
 import pandas as pd
 import plotly.express as px
 import pdfplumber
@@ -7,17 +6,25 @@ import requests
 import re
 import io
 import urllib.parse
+import json
+import vertexai
+from vertexai.generative_models import GenerativeModel, Part
 
 # ==========================================
-# 1. 보안 및 API 설정
+# 1. Vertex AI 보안 및 API 설정 (크레딧 소진용)
 # ==========================================
 try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
+    # Secrets 설정 정보 불러오기 (스트림릿 클라우드 기준)
+    PROJECT_ID = st.secrets["GCP_PROJECT"]
+    LOCATION = st.secrets.get("GCP_REGION", "us-central1")
     GSHEET_SCRIPT_URL = st.secrets["GSHEET_SCRIPT_URL"]
-    genai.configure(api_key=API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
-except:
-    st.error("⚠️ Secrets 설정 정보를 확인해주세요.")
+    
+    # Vertex AI 초기화
+    vertexai.init(project=PROJECT_ID, location=LOCATION)
+    # Vertex AI용 Gemini 모델 로드
+    model = GenerativeModel("gemini-2.0-flash-001")
+except Exception as e:
+    st.error(f"⚠️ 시스템 설정 오류: {e}\n스트림릿 Secrets에 GCP_PROJECT와 GSHEET_SCRIPT_URL을 확인해 주세요.")
 
 if "analysis_result" not in st.session_state: st.session_state.analysis_result = ""
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
@@ -100,7 +107,6 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
-# 안전 추출 함수
 def extract_section(text, start_keyword, end_keyword=None):
     if end_keyword:
         pattern = rf"\[{start_keyword}\].*?(?=\[{end_keyword}\]|$)"
@@ -110,7 +116,7 @@ def extract_section(text, start_keyword, end_keyword=None):
     return match.group(0).strip() if match else ""
 
 # ==========================================
-# 4. 메인 UI
+# 4. 메인 UI 구성
 # ==========================================
 st.set_page_config(page_title="고3 대입 전문 컨설팅", layout="wide")
 st.title("🎓 고3 대입 전문 컨설팅")
@@ -140,14 +146,13 @@ with st.sidebar:
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('데이터 기반 보수적 정밀 분석 중...'):
+        with st.spinner('Vertex AI 기반 무료 크레딧 모드로 데이터 분석 중...'):
             i_df, m_df = process_performance_data(excel_file.getvalue())
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
             rural_inst = "이 학생은 [농어촌 전형] 대상자이므로 대입 전략에 포함할 것." if is_rural else ""
             
-            # [수정] 면접 질문 제약 및 깔끔한 출력 유도
             prompt = f"""
             지방 일반고 컨설턴트로서 {target_major} 지망 학생 분석. 보수적 관점 유지.
             {rural_inst}
@@ -158,9 +163,9 @@ if excel_file and pdf_file and target_major:
             3. 면접 질문(PART 4)에는 농어촌 전형이나 학교 환경에 대한 질문을 절대 넣지 말 것. 오직 '지원 학과 관련 교과 세특 및 탐구 활동'에 관한 전공 적합성 질문만 3개 생성할 것.
             
             [PART 1]
-            성적 및 전형 적합성
+            성적 및 전형 적합성 요약
             [PART 2]
-            대입 전략 및 추천 도서
+            대입 전략 및 추천 도서 목록
             [PART 3]
             (반드시 "주제:", "종적/횡적 근거:", "탐구 방법:" 키워드 사용) 3가지
             [PART 4]
@@ -169,12 +174,14 @@ if excel_file and pdf_file and target_major:
             @PIE [교과: %, 정시: %, 종합: %] @
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:15000]}), 지식({k_base[:10000]})
             """
+            
+            # 모델 텍스트 생성
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
     # ----------------------------------------------------
-    # [수술 1] AI가 만든 이상한 괄호 문구와 제목줄을 파이썬으로 강제 삭제
+    # 데이터 후처리: 불필요 문구 강제 삭제 및 리포트 구성
     # ----------------------------------------------------
     res = st.session_state.analysis_result
     clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL).strip()
@@ -184,13 +191,11 @@ if excel_file and pdf_file and target_major:
     p3_content = extract_section(clean_res, "PART 3", "PART 4")
     p4_content = extract_section(clean_res, "PART 4")
 
-    # 첫 줄([PART 1] 등)에 AI가 붙인 이상한 설명글 무조건 날려버리기
     p1_body = re.sub(r'^\s*\[PART 1\].*?(?=\n|$)', '', p1_content, flags=re.IGNORECASE).strip()
     p2_body = re.sub(r'^\s*\[PART 2\].*?(?=\n|$)', '', p2_content, flags=re.IGNORECASE).strip()
     p3_body = re.sub(r'^\s*\[PART 3\].*?(?=\n|$)', '', p3_content, flags=re.IGNORECASE).strip()
     p4_body = re.sub(r'^\s*\[PART 4\].*?(?=\n|$)', '', p4_content, flags=re.IGNORECASE).strip()
 
-    # 파트 3, 4 이모지 포맷팅
     f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_body)
     f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
     f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
@@ -199,7 +204,6 @@ if excel_file and pdf_file and target_major:
     f_p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', f_p4)
     f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
 
-    # 파이썬이 완벽하게 통제한 최종 리포트 텍스트 (다운로드/인쇄용)
     final_report_markdown = f"""
 ### 📝 [PART 1] 종합 진단
 {p1_body}
@@ -259,7 +263,6 @@ if excel_file and pdf_file and target_major:
     with tab4:
         st.subheader("🖨️ 인쇄용 리포트")
         
-        # HTML 다운로드 (에러 확률 0%)
         html_content = f"""<!DOCTYPE html>
         <html>
         <head>
@@ -286,18 +289,15 @@ if excel_file and pdf_file and target_major:
         </html>"""
 
         st.download_button(
-            label="📄 리포트 파일로 받아서 인쇄하기 (가장 안정적)",
+            label="📄 리포트 파일로 받아서 인쇄하기",
             data=html_content,
             file_name=f"{target_major}_컨설팅_리포트.html",
             mime="text/html",
             use_container_width=True
         )
         
-        st.info("💡 **인쇄하는 2가지 방법**\n1. 위 **[리포트 파일로 받아서 인쇄하기]** 버튼을 눌러 파일을 열면 즉시 팝업창 없이 인쇄됩니다.\n2. 키보드 **`Ctrl` + `P`** (맥은 Cmd+P)를 누르시면 지금 보시는 리포트 화면만 종이에 꽉 차게 인쇄됩니다.")
-        
         st.markdown("---")
         
-        # 화면 출력용 및 Ctrl+P 인쇄용 영역
         st.markdown(f"""
         <div class="print-only">
             <h1>대입 컨설팅 결과 리포트</h1>
