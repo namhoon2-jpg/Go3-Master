@@ -25,39 +25,41 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (다중 페이지 인쇄 뚫기)
+# 2. 화면 및 인쇄 스타일 (다중 페이지 인쇄 핵폭탄급 강제 해제)
 # ==========================================
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
     
     @media print {
+        /* 1. 불필요한 UI 완벽 숨기기 */
         [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, .stTabs [role="tablist"] {
             display: none !important;
         }
         
+        /* 2. [핵심] 화면 내 모든 요소의 스크롤 및 높이 제한 영구 파괴 */
+        * {
+            overflow: visible !important;
+            height: auto !important;
+            max-height: none !important;
+        }
+        
+        /* 3. 스트림릿 메인 컨테이너들을 정적(Static) 블록으로 강제 전환 */
         html, body, .stApp, .main, 
         [data-testid="stAppViewContainer"], 
         [data-testid="stMainBlockContainer"],
         .block-container {
-            height: auto !important;
-            min-height: auto !important;
-            max-height: none !important;
-            overflow: visible !important;
-            position: relative !important;
+            position: static !important;
             display: block !important;
-        }
-        
-        .main .block-container { 
-            max-width: 100% !important; 
-            padding: 0 !important; 
+            width: auto !important;
+            margin: 0 !important;
+            padding: 0 !important;
         }
 
+        /* 4. 차트 우측 잘림 방지 (2단 컬럼을 1단으로 강제 정렬) */
         [data-testid="column"], [data-testid="stColumn"] {
             width: 100% !important;
-            flex: 1 1 100% !important;
-            max-width: 100% !important;
-            min-width: 100% !important;
+            flex: none !important;
             display: block !important;
             margin-bottom: 20px !important;
             page-break-inside: avoid !important;
@@ -65,8 +67,9 @@ st.markdown("""
         
         .stPlotlyChart { width: 100% !important; page-break-inside: avoid !important; }
         
+        /* 5. 페이지 넘김 시 글자 및 차트 반토막 방지 */
         h2, h3, h4 { page-break-after: avoid; margin-top: 25px; border-left: 5px solid #2e6bc6; padding-left: 10px; }
-        p, li { font-size: 11.5pt !important; line-height: 1.6; color: #000; page-break-inside: avoid; }
+        p, li { font-size: 11.5pt !important; line-height: 1.6; color: #000; page-break-inside: auto; }
         
         @page { margin: 1.5cm; }
     }
@@ -193,7 +196,7 @@ if excel_file and pdf_file and target_major:
 
             [🔥 전형 추천 및 데이터 연동 절대 원칙]
             1. **교과 vs 종합 유불리 엄격 판단**: 생기부 기록이 빈약하여 본인이 매긴 @RADAR 방사형 그래프의 점수가 전반적으로 낮다면(예: 60~70점대 이하), **절대 종합 전형을 1순위로 추천하지 말 것.** 이 경우 무조건 객관적 내신 수치로 승부하는 **'교과 전형'의 비중(X)을 70~80% 이상으로 압도적으로 높게 배정**할 것.
-            2. 방사형(RADAR) 점수와 파이(PIE) 차트의 추천 비중은 완벽한 인과관계를 가져야 함. 생기부가 안 좋으면 교과 위주, 생기부가 뛰어나면 종합 위주로 논리를 전개하라.
+            2. 방사형(RADAR) 점수와 파이(PIE) 차트의 추천 비중은 완벽한 인과관계를 가져야 함.
             3. [PART 2] 텍스트에서 1순위로 추천한 전형이 반드시 @PIE 태그에서도 가장 높은 비율을 차지해야 함.
 
             [작성 가이드]
@@ -299,7 +302,6 @@ if excel_file and pdf_file and target_major:
             <h4 style="margin-top: 0; color: #1a73e8;">🖨️ 리포트 다중 페이지 인쇄 방법</h4>
             <p style="margin-bottom: 5px; font-size: 15px; color: #333;"><b>1.</b> 키보드에서 <b>Ctrl + P</b> (Mac은 Cmd + P)를 누르세요.</p>
             <p style="margin-bottom: 0; font-size: 15px; color: #333;"><b>2.</b> 인쇄 설정(더보기)에서 <b>'배경 그래픽(Background graphics)'</b>을 반드시 체크해야 차트가 인쇄됩니다.</p>
-            <p style="margin-bottom: 0; font-size: 15px; color: #d93025; font-weight: bold;">💡 (중요) 인쇄 시 차트 잘림 방지를 위해 4개의 차트가 세로로 큼직하게 자동 정렬됩니다.</p>
         </div>
         """, unsafe_allow_html=True)
         st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
