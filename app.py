@@ -125,25 +125,30 @@ def extract_section(text, start_keyword, end_keyword=None):
     return content
 
 # ==========================================
-# ★ HTML 다운로드 생성기 (컬러 강제 보존 CSS 추가!)
+# ★ HTML 다운로드 생성기 (그래프 테마 독립화!)
 # ==========================================
 def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
     fig_i_html, fig_m_html, fig_p_html, fig_r_html = "", "", "", ""
+    
+    # 💡 template="plotly"를 추가하여 스트림릿 밖에서도 고유 컬러를 유지하게 강제함
     if not i_df.empty:
-        fig_i = px.line(i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이")
+        fig_i = px.line(i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이", template="plotly")
         fig_i_html = fig_i.to_html(full_html=False, include_plotlyjs='cdn')
+        
     if not m_df.empty:
-        fig_m = px.line(m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이")
+        fig_m = px.line(m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", template="plotly")
         fig_m.update_traces(connectgaps=True)
         fig_m_html = fig_m.to_html(full_html=False, include_plotlyjs=False)
+        
     p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
     if p_match:
         try:
             p_items = [it.split(':') for it in p_match.group(1).split(',')]
             p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
-            fig_p = px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율")
+            fig_p = px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율", template="plotly")
             fig_p_html = fig_p.to_html(full_html=False, include_plotlyjs=False)
         except: pass
+        
     r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
     if r_match:
         try:
@@ -151,7 +156,7 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
             r_labels = [k.strip() for k, v in r_items]
             r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
             fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
-            fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단")
+            fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단", template="plotly")
             fig_r_html = fig_r.to_html(full_html=False, include_plotlyjs=False)
         except: pass
 
@@ -168,25 +173,43 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
         <meta charset="UTF-8">
         <title>대입 컨설팅 리포트 ({target_major})</title>
         <style>
+            :root {{
+                color-scheme: light only !important;
+            }}
+            html, body {{
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+                background-color: #ffffff !important;
+            }}
             body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; color: #111; line-height: 1.8; max-width: 1000px; margin: auto; }}
-            h2 {{ text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 40px; }}
+            h2 {{ text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 30px; }}
             h3 {{ color: #1a73e8; border-left: 5px solid #1a73e8; padding-left: 12px; margin-top: 40px; }}
             .charts {{ display: flex; flex-wrap: wrap; justify-content: space-between; page-break-inside: avoid; margin-bottom: 40px; }}
             .chart {{ width: 48%; margin-bottom: 20px; }}
             
-            /* 💡 SVG 그래픽(Plotly) 컬러 인쇄 강제 보존 코드 */
+            .print-alert {{
+                background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba; margin-bottom: 30px; font-weight: bold;
+            }}
+            
             @media print {{ 
                 body {{ padding: 0; }} 
                 .chart {{ page-break-inside: avoid; }} 
+                .print-alert {{ display: none !important; }}
+                
                 *, svg, path, rect, g, text, circle, line {{
                     -webkit-print-color-adjust: exact !important;
                     print-color-adjust: exact !important;
                     color-adjust: exact !important;
+                    filter: none !important;
                 }}
             }}
         </style>
     </head>
     <body>
+        <div class="print-alert">
+            🚨 <b>잠깐! 인쇄 전 필독:</b> 키보드 <code>Ctrl + P</code>를 누르신 후, 우측 설정 창에서 <b>[더보기]</b>를 누르고 <b>[배경 그래픽]</b> 항목을 <b>반드시 체크(☑️)</b> 해주세요!
+        </div>
+        
         <h2>🎓 대입 컨설팅 종합 리포트 ({target_major})</h2>
         <div class="charts">
             <div class="chart">{fig_i_html}</div>
@@ -236,7 +259,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진
+# 5. 분석 엔진 (PART 3 세특 예시 연결 로직 유지)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
