@@ -17,7 +17,6 @@ try:
     GSHEET_SCRIPT_URL = st.secrets["GSHEET_SCRIPT_URL"]
     
     genai.configure(api_key=API_KEY)
-    # 선생님 환경에서 검증된 최신 모델 사용
     model = genai.GenerativeModel("gemini-2.5-flash") 
 except Exception as e:
     st.error(f"⚠️ 시스템 설정 오류: {e}")
@@ -26,32 +25,26 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (그래프 인쇄 최적화)
+# 2. 화면 및 인쇄 스타일 (CSS)
 # ==========================================
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
-    
     @media print {
-        [data-testid="stSidebar"], header, footer, .stChatInput, .no-print {
+        [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, .stTabs [role="tablist"] {
             display: none !important;
         }
-        .stTabs [role="tablist"] {
-            display: none !important;
-        }
-        .main .block-container {
-            max-width: 100% !important;
-            padding: 0 !important;
-        }
+        .main .block-container { max-width: 100% !important; padding: 0 !important; }
         h2 { border-bottom: 2px solid black; padding-bottom: 5px; }
-        p, li { font-size: 11pt !important; color: #111 !important; line-height: 1.6; }
+        h3 { margin-top: 20px; border-left: 5px solid #2e6bc6; padding-left: 10px; }
+        p, li { font-size: 11pt !important; line-height: 1.6; color: #111; }
         @page { margin: 1.5cm; }
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수들 (전 과목 등급 추출 강화)
+# 3. 데이터 가공 함수들 (결측치 방어 및 6과목 추출)
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -71,9 +64,6 @@ def process_performance_data(file_bytes):
             m = re.search(r'([1-9])', str(val).strip())
             return float(m.group(1)) if m else None
         except: return None
-
-    def get_val(row, idx):
-        return safe_grade(row.iloc[idx]) if idx < len(row) else None
 
     if '학생부현황' in xls.sheet_names:
         df = pd.read_excel(xls, sheet_name='학생부현황')
@@ -97,16 +87,15 @@ def process_performance_data(file_bytes):
         for _, row in df_m.iterrows():
             try:
                 txt = str(row.iloc[0])
-                g_m = re.search(r'(\d)학년', txt)
-                d_m = re.search(r'\((\d{2})-(\d{2})\)', txt)
+                g_m = re.search(r'(\d)학년', txt); d_m = re.search(r'\((\d{2})-(\d{2})\)', txt)
                 if g_m and d_m:
                     m_res.append({
                         "key": int(f"{d_m.group(1)}{d_m.group(2)}"), 
                         "시험": f"{g_m.group(1)}학년 {d_m.group(2)}월", 
-                        "국어": get_val(row, 4), "수학": get_val(row, 8), 
-                        "영어": get_val(row, 10), "한국사": get_val(row, 12), 
-                        "탐구1": get_val(row, 13) or get_val(row, 16), 
-                        "탐구2": get_val(row, 14) or get_val(row, 21)
+                        "국어": safe_grade(row.iloc[4]), "수학": safe_grade(row.iloc[8]), 
+                        "영어": safe_grade(row.iloc[10]), "한국사": safe_grade(row.iloc[12]), 
+                        "탐구1": safe_grade(row.iloc[13]) or safe_grade(row.iloc[16]), 
+                        "탐구2": safe_grade(row.iloc[14]) or safe_grade(row.iloc[21])
                     })
             except: continue
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
@@ -136,7 +125,7 @@ with st.sidebar:
     st.divider()
     st.header("📚 지식 데이터베이스")
     ref_file = st.file_uploader("자료 업로드", type=["pdf", "xlsx"])
-    if st.button("💾 영구 저장"):
+    if st.button("💾 데이터 저장"):
         if ref_file:
             with st.spinner("저장 중..."):
                 txt = f"\n[자료: {ref_file.name}]\n"
@@ -148,11 +137,11 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 및 출력 로직
+# 5. 분석 엔진 (심화 프롬프트 전략)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('AI 엔진이 데이터를 정밀 분석 중입니다...'):
+        with st.spinner('🚀 입시 전문가 AI가 학생부를 정밀 분석 중입니다...'):
             i_df, m_df = process_performance_data(excel_file.getvalue())
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
@@ -160,103 +149,107 @@ if excel_file and pdf_file and target_major:
             rural_inst = "이 학생은 [농어촌 전형] 대상자임." if is_rural else ""
             
             prompt = f"""
-            전문 입시 컨설턴트로서 {target_major} 지망 학생을 분석하세요. {rural_inst}
+            입시 컨설턴트로서 {target_major} 지망 학생 분석. {rural_inst}
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:12000]}), 지식({k_base[:5000]})
             
-            [수치 해석 필수 규칙]
-            제공된 표의 내신/모의고사 수치는 '등급'임. 숫자가 작을수록 우수함.
-            절대 "점수"라고 표현하지 말고 "등급" 단위로만 분석할 것.
+            [절대 규칙] 
+            1. 인사말 금지. [PART 1]부터 음슴체로 즉시 출력.
+            2. 내신/모의고사 수치는 '등급'임. 하락 시 '점수'가 아닌 '등급' 단위로 분석.
+            3. 마지막에 @PIE [...] @ 및 @RADAR [...] @ 태그 포함 필수.
 
-            [절대 준수 규칙]
-            1. 인사말 금지. [PART 1]부터 개괄식 음슴체로 즉시 출력.
-            2. [PART 1] 전공 관련 세특 누락 지적 필수.
-            3. 마지막에 @PIE [...] @ 및 @RADAR [...] @ 태그 포함.
+            [작성 가이드]
+            [PART 1] 종합 진단: 내신/모의고사 전 과목 등급 추이를 수치 기반으로 5줄 이상 심층 분석. 지원 전공 관련 핵심 과목 세특의 누락/부실 여부를 날카롭게 지적할 것.
+            [PART 2] 대입 전략 및 추천 도서: 전형별(교과, 종합, 논술 등) 액션 플랜을 매우 구체적으로 제시하고, 학과 관련 추천 도서 3권(도서명, 선정 이유)을 포함할 것.
+            [PART 3] 심화 탐구 및 세특 예시: 
+                     - 탐구 가이드(3가지): 주제: / 종적/횡적 근거: (생기부 출처 명시) / 탐구 방법: 
+                     - **NEIS 기재용 세특 문구 예시(3가지)**: 실제 생활기록부 세특에 바로 기재 가능한 수준의 전문가용 문구(각 200자 내외).
+            [PART 4] 면접 예상 질문: (3가지) 질문: / 모범 답안: (매우 상세히) / 준비 방법: 
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # --- 데이터 후처리 ---
+    # --- 데이터 후처리 및 UI 렌더링 ---
     res = st.session_state.analysis_result
     clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL).strip()
-
     p1 = extract_section(clean_res, "PART 1", "PART 2")
     p2 = extract_section(clean_res, "PART 2", "PART 3")
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
+    # 가시성 강화 변환
     p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3)
     p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', p3)
     p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', p3)
+    p3 = re.sub(r'(?i)NEIS\s*기재용\s*세특\s*문구\s*예시\s*:', '### ✍️ NEIS 기재용 세특 문구 예시', p3)
+    
     p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4)
     p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
     p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', p4)
 
-    # 그래프 객체 생성
-    fig_i = px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이")
-    fig_m = px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", labels={"value":"등급", "variable":"과목"})
-    fig_m.update_traces(connectgaps=True)
+    # 그래프 함수 (중복 ID 해결)
+    def render_all_charts(suffix):
+        c1, c2 = st.columns(2); c3, c4 = st.columns(2)
+        if not st.session_state.i_df.empty:
+            c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이", labels={"등급":"등급"}), use_container_width=True, key=f"i_{suffix}")
+        if not st.session_state.m_df.empty:
+            fig_m = px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", labels={"value":"등급", "variable":"과목"})
+            fig_m.update_traces(connectgaps=True)
+            c2.plotly_chart(fig_m, use_container_width=True, key=f"m_{suffix}")
+        
+        p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
+        if p_match:
+            try:
+                p_items = [it.split(':') for it in p_match.group(1).split(',')]
+                p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
+                c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True, key=f"p_{suffix}")
+            except: pass
+        
+        r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res)
+        if r_match:
+            try:
+                r_items = [it.split(':') for it in r_match.group(1).split(',')]
+                r_labels = [k.strip() for k, v in r_items]; r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
+                fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
+                fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량")
+                c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
+            except: pass
 
-    # 전형 비중 도넛 차트
-    pie_raw = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
-    try:
-        p_items = [it.split(':') for it in pie_raw.group(1).split(',')]
-        p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
-        fig_p = px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비중")
-    except: fig_p = None
-
-    # 생기부 역량 레이더 차트
-    radar_raw = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res)
-    try:
-        r_items = [it.split(':') for it in radar_raw.group(1).split(',')]
-        r_labels = [k.strip() for k, v in r_items]; r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
-        fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
-        fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량")
-    except: fig_r = None
-
-    # --- 화면 출력부 ---
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 리포트 인쇄"])
+    # --- 탭 구성 ---
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 진단 및 전략", "💡 탐구/면접 가이드", "💬 실시간 상담", "🖨️ 리포트 인쇄"])
 
     with tab1:
-        st.subheader("📊 데이터 분석 대시보드")
-        c1, c2 = st.columns(2); c3, c4 = st.columns(2)
-        c1.plotly_chart(fig_i, use_container_width=True, key="i1")
-        c2.plotly_chart(fig_m, use_container_width=True, key="m1")
-        if fig_p: c3.plotly_chart(fig_p, use_container_width=True, key="p1")
-        if fig_r: c4.plotly_chart(fig_r, use_container_width=True, key="r1")
+        st.subheader("📊 데이터 기반 컨설팅 대시보드")
+        render_all_charts("tab1")
         st.divider()
         st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}")
         st.markdown(f"### 🎯 [PART 2] 대입 전략 및 추천 도서\n\n{p2}")
 
     with tab2:
-        st.markdown(f"### 🚀 [PART 3] 심화 탐구 가이드\n\n{p3}")
+        st.markdown(f"### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}")
         st.divider()
         st.markdown(f"### 🎤 [PART 4] 면접 예상 질문\n\n{p4}")
 
     with tab3:
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]): st.markdown(msg["content"])
-        if p_chat := st.chat_input("질문 입력..."):
+        if p_chat := st.chat_input("추가 질문을 입력하세요..."):
             st.session_state.chat_history.append({"role": "user", "content": p_chat})
             with st.chat_message("user"): st.markdown(p_chat)
             with st.chat_message("assistant"):
-                ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
-                st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
+                ans = model.generate_content(f"배경: {res}\n질문: {p_chat}"); st.markdown(ans.text)
+                st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
     with tab4:
         st.markdown("""
         <div class="no-print" style="margin-bottom: 20px;">
-            <a href="javascript:window.print()" style="display: inline-block; padding: 12px 24px; background-color: #2e6bc6; color: white; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">🖨️ 리포트 인쇄하기</a>
-            <p style="margin-top: 10px; color: #555; font-size: 14px;">※ 설정에서 <b>'배경 그래픽'</b>을 체크해 주세요.</p>
+            <a href="javascript:window.print()" style="display: inline-block; padding: 12px 24px; background-color: #2e6bc6; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">🖨️ 리포트 인쇄하기</a>
+            <p style="font-size: 13px; color: #666; margin-top: 5px;">※ 인쇄 설정에서 '배경 그래픽'을 체크하면 그래프가 함께 인쇄됩니다.</p>
         </div>
         """, unsafe_allow_html=True)
-        st.markdown(f"## 🎓 대입 컨설팅 리포트 ({target_major})")
-        pc1, pc2 = st.columns(2); pc3, pc4 = st.columns(2)
-        pc1.plotly_chart(fig_i, use_container_width=True, key="i2")
-        pc2.plotly_chart(fig_m, use_container_width=True, key="m2")
-        if fig_p: pc3.plotly_chart(fig_p, use_container_width=True, key="p2")
-        if fig_r: pc4.plotly_chart(fig_r, use_container_width=True, key="r2")
+        st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
+        render_all_charts("tab4")
         st.divider()
-        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}\n\n### 🎯 [PART 2] 대입 전략\n\n{p2}\n\n### 🚀 [PART 3] 심화 탐구\n\n{p3}\n\n### 🎤 [PART 4] 면접 질문\n\n{p4}")
+        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}\n\n### 🎯 [PART 2] 대입 전략\n\n{p2}\n\n### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}\n\n### 🎤 [PART 4] 면접 질문\n\n{p4}")
 else:
-    st.info("👈 왼쪽에서 정보를 입력하고 파일을 업로드해 주세요.")
+    st.info("👈 왼쪽 사이드바에 정보를 입력하고 파일을 업로드해 주세요.")
