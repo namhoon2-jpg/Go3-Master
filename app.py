@@ -9,7 +9,7 @@ import urllib.parse
 import google.generativeai as genai
 
 # ==========================================
-# 1. 보안 및 API 설정 (최신 2.5 플래시 고정)
+# 1. 보안 및 API 설정
 # ==========================================
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
@@ -24,24 +24,40 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 인쇄 및 화면 스타일 (CSS)
+# 2. 화면 및 인쇄 스타일 (CSS)
 # ==========================================
 st.markdown("""
     <style>
     .print-only { display: none; }
+    
     @media print {
-        [data-testid="stSidebar"], header, footer, .stTabs, button, .stChatInput { display: none !important; }
+        [data-testid="stSidebar"], header, footer, .stTabs, button, .stChatInput {
+            display: none !important;
+        }
         body * { visibility: hidden; }
-        .print-only, .print-only * { visibility: visible !important; }
-        .print-only { display: block !important; position: absolute; left: 0; top: 0; width: 100% !important; color: black !important; background-color: white !important; font-size: 11pt !important; line-height: 1.6; }
-        .print-only h1 { text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; }
+        
+        .print-only, .print-only * { 
+            visibility: visible !important; 
+        }
+        .print-only {
+            display: block !important;
+            position: absolute; left: 0; top: 0;
+            width: 100% !important;
+            color: black !important;
+            background-color: white !important;
+            font-size: 10pt !important;
+            line-height: 1.6 !important;
+        }
+        .print-only h2 { font-size: 18pt; text-align: center; border-bottom: 2px solid black; padding-bottom: 10px; margin-bottom: 15px;}
+        .print-only h3 { font-size: 14pt; margin-top: 20px; color: #111; }
+        .print-only h4 { font-size: 12pt; margin-top: 10px; color: #333; }
         @page { margin: 1.5cm; }
     }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수 (정규표현식 강화)
+# 3. 데이터 가공 함수들
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -82,28 +98,36 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
-# 내용 추출 로직 강화 (헤더 유연성 확보)
-def extract_section(text, start_idx, end_idx=None):
-    pattern = rf"\[PART {start_idx}\].*?(?=\[PART {end_idx}\]|$)" if end_idx else rf"\[PART {start_idx}\].*"
+# [핵심 로직] AI의 불필요한 제목 서식을 잘라내고 순수 텍스트만 추출하는 함수
+def extract_section(text, start_keyword, end_keyword=None):
+    if end_keyword:
+        pattern = rf"\[{start_keyword}\].*?(?=\[{end_keyword}\]|$)"
+    else:
+        pattern = rf"\[{start_keyword}\].*"
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-    return match.group(0).strip() if match else f"{start_idx}번 내용을 생성 중입니다..."
+    if not match: return ""
+    
+    content = match.group(0).strip()
+    # 첫 번째 줄(AI가 생성한 [PART 1] 등의 지저분한 제목)을 강제로 삭제
+    content = re.sub(rf"^.*?\[{start_keyword}\].*?(?=\n|$)", "", content, flags=re.IGNORECASE).strip()
+    return content
 
 # ==========================================
-# 4. 메인 UI 구성
+# 4. 메인 UI 구성 (버전명 제거)
 # ==========================================
-st.set_page_config(page_title="고3 대입 전문 컨설팅", layout="wide")
-st.title("🎓 고3 대입 전문 컨설팅 시스템 V62")
+st.set_page_config(page_title="고3 대입 전문 컨설팅 시스템", layout="wide")
+st.title("🎓 고3 대입 전문 컨설팅 시스템")
 
 with st.sidebar:
-    st.header("📋 데이터 입력")
+    st.header("📋 학생 데이터 입력")
     target_major = st.text_input("희망 학과", placeholder="예: 신소재공학과")
     excel_file = st.file_uploader("1. 성적 엑셀", type=["xlsx"])
     pdf_file = st.file_uploader("2. 생기부 PDF", type="pdf")
     is_rural = st.checkbox("🌾 농어촌 전형 대상자 여부", value=False)
     st.divider()
     st.header("📚 지식 데이터베이스")
-    ref_file = st.file_uploader("참고자료 업로드", type=["pdf", "xlsx"])
-    if st.button("💾 데이터 저장"):
+    ref_file = st.file_uploader("자료 업로드", type=["pdf", "xlsx"])
+    if st.button("💾 영구 저장"):
         if ref_file:
             with st.spinner("저장 중..."):
                 txt = f"\n[자료: {ref_file.name}]\n"
@@ -115,57 +139,99 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 및 결과 출력
+# 5. 분석 로직 (프롬프트 엄격 통제)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('🚀 AI 정밀 분석 중...'):
+        with st.spinner('AI 엔진이 데이터를 분석 중입니다...'):
             i_df, m_df = process_performance_data(excel_file.getvalue())
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
-            rural_inst = "이 학생은 농어촌 전형 대상자이므로 전형 전략에 반드시 포함할 것." if is_rural else ""
+            rural_inst = "이 학생은 [농어촌 전형] 대상자임." if is_rural else ""
             
             prompt = f"""
-            입시 컨설턴트로서 {target_major} 지망 학생 분석. 음슴체 사용. {rural_inst}
+            대한민국 일반고 입시 전문 컨설턴트로서 {target_major} 지망 학생을 분석하세요. {rural_inst}
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:12000]}), 지식({k_base[:5000]})
-            [필수 형식]
-            [PART 1] 진단, [PART 2] 전략, [PART 3] 탐구주제, [PART 4] 면접질문.
-            반드시 @PIE [교과: 60, 정시: 10, 종합: 30] @ 형식으로 추천 비중을 포함할 것.
+            
+            [절대 준수 규칙]
+            1. "자네 학생의...", "제안합니다" 같은 서론/결론/인사말 절대 금지. 즉시 [PART 1]부터 출력할 것.
+            2. 모든 문장은 글머리 기호('-')를 사용한 개괄식 작성.
+            3. 철저한 '음슴체(~함, ~임, ~됨)' 사용. (존댓말, 반말 절대 금지).
+            4. 정시 합격 확률이 낮으면 @PIE 내 정시 비중을 10% 이하로 조정.
+
+            [PART 1] 성적 및 전형 적합성 요약
+            [PART 2] 대입 전략 및 추천 도서 목록
+            [PART 3] 심화 탐구 가이드 (반드시 "주제:", "종적/횡적 근거:", "탐구 방법:" 키워드를 사용하여 3가지 작성)
+            [PART 4] 면접 예상 질문 (농어촌 관련 질문 금지. 전공 적합성 질문만 3가지. 반드시 "질문:", "모범 답안:", "준비 방법:" 키워드 사용)
+
+            마지막 줄에 반드시 @PIE [교과: 60, 정시: 10, 종합: 30] @ 형식으로 추천 비중 포함.
             """
+            
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # --- 리포트 구성 ---
+    # ----------------------------------------------------
+    # 데이터 후처리 및 출력
+    # ----------------------------------------------------
     res = st.session_state.analysis_result
     clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL).strip()
-    
-    # 탭 구성 복구
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 리포트 인쇄"])
+
+    # 각 파트별 텍스트 추출 (AI의 지저분한 제목은 함수 내에서 삭제됨)
+    p1_body = extract_section(clean_res, "PART 1", "PART 2")
+    p2_body = extract_section(clean_res, "PART 2", "PART 3")
+    p3_body = extract_section(clean_res, "PART 3", "PART 4")
+    p4_body = extract_section(clean_res, "PART 4")
+
+    # V58 감성 복구: PART 3, 4 키워드 아이콘화 및 가독성 처리
+    f_p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3_body)
+    f_p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', f_p3)
+    f_p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', f_p3)
+
+    f_p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4_body)
+    f_p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', f_p4)
+    f_p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', f_p4)
+
+    # 인쇄용 마크다운 (코드에서 직접 크고 굵은 헤더 지정)
+    final_report_markdown = f"""
+### 📝 [PART 1] 종합 진단
+{p1_body}
+
+### 🎯 [PART 2] 대입 전략
+{p2_body}
+
+### 🚀 [PART 3] 심화 탐구 가이드
+{f_p3}
+
+### 🎤 [PART 4] 면접 예상 질문
+{f_p4}
+"""
+
+    tab1, tab2, tab3, tab4 = st.tabs(["📝 진단 및 전략", "🚀 심화 탐구 가이드", "💬 실시간 상담", "🖨️ 핵심 요약 인쇄"])
 
     with tab1:
-        st.subheader("📊 데이터 기반 성적 진단")
+        st.subheader("📊 성적 분석 및 전형 추천")
         c1, c2, c3 = st.columns(3)
-        if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"))
-        if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이"))
+        if not st.session_state.i_df.empty: c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 추이"), use_container_width=True)
+        if not st.session_state.m_df.empty: c2.plotly_chart(px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "탐구"], markers=True, title="모의고사 추이", range_y=[0, 100]), use_container_width=True)
         
-        # 원형 그래프 로직 강화
-        pie_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
-        if pie_match:
+        pie_raw = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
+        if pie_raw:
             try:
-                p_items = [it.split(':') for it in pie_match.group(1).split(',')]
-                p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
-                c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율"))
-            except: c3.info("전형 비중 분석 중...")
+                p_items = [it.split(':') for it in pie_raw.group(1).split(',')]
+                p_data = [{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items]
+                c3.plotly_chart(px.pie(pd.DataFrame(p_data), values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True)
+            except: pass
         
-        st.markdown(extract_section(clean_res, 1, 2))
-        st.markdown(extract_section(clean_res, 2, 3))
+        # UI에서 크고 굵은 마크다운 헤더를 직접 부여
+        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1_body}")
+        st.markdown(f"### 🎯 [PART 2] 대입 전략\n\n{p2_body}")
 
     with tab2:
-        st.markdown(extract_section(clean_res, 3, 4))
+        st.markdown(f"### 🚀 [PART 3] 심화 탐구 가이드\n\n{f_p3}")
         st.divider()
-        st.markdown(extract_section(clean_res, 4))
+        st.markdown(f"### 🎤 [PART 4] 면접 예상 질문\n\n{f_p4}")
 
     with tab3:
         for msg in st.session_state.chat_history:
@@ -174,21 +240,47 @@ if excel_file and pdf_file and target_major:
             st.session_state.chat_history.append({"role": "user", "content": p_chat})
             with st.chat_message("user"): st.markdown(p_chat)
             with st.chat_message("assistant"):
-                ans = model.generate_content(f"배경: {res}\n질문: {p_chat}"); st.markdown(ans.text)
-                st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
+                ans = model.generate_content(f"배경: {res}\n질문: {p_chat}")
+                st.markdown(ans.text); st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
     with tab4:
-        st.subheader("🖨️ 인쇄용 리포트 생성")
-        final_md = f"### [PART 1] 진단\n{extract_section(clean_res, 1, 2)}\n\n### [PART 2] 전략\n{extract_section(clean_res, 2, 3)}\n\n### [PART 3] 탐구\n{extract_section(clean_res, 3, 4)}\n\n### [PART 4] 면접\n{extract_section(clean_res, 4)}"
+        st.subheader("🖨️ 인쇄용 리포트")
         
-        html_btn = f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+        html_content = f"""<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8"><title>대입 컨설팅 리포트</title>
             <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-            <style>body{{font-family:'Malgun Gothic',sans-serif;padding:30px;}}h1{{text-align:center;}}</style>
-            </head><body onload="window.print()"><h1>대입 컨설팅 결과 ({target_major})</h1><div id="content"></div>
-            <script>document.getElementById('content').innerHTML = marked.parse(decodeURIComponent("{urllib.parse.quote(final_md)}"));</script>
-            </body></html>"""
+            <style>
+                body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; line-height: 1.6; color: #111; max-width: 21cm; margin: auto; }}
+                h2 {{ text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 30px; }}
+                h3 {{ margin-top: 1.5em; color: #222; font-size: 14pt; }}
+                h4 {{ margin-top: 1em; color: #444; font-size: 12pt; }}
+                p, li {{ font-size: 10pt; }}
+            </style>
+        </head>
+        <body onload="setTimeout(function(){{ window.print(); }}, 500);">
+            <h2>대입 컨설팅 결과 리포트 ({target_major})</h2>
+            <div id="content"></div>
+            <script>
+                var rawMd = decodeURIComponent("{urllib.parse.quote(final_report_markdown)}");
+                document.getElementById('content').innerHTML = marked.parse(rawMd);
+            </script>
+        </body>
+        </html>"""
+
+        st.download_button(
+            label="📄 리포트 파일로 받아서 인쇄하기",
+            data=html_content,
+            file_name=f"{target_major}_컨설팅_리포트.html",
+            mime="text/html",
+            use_container_width=True
+        )
         
-        st.download_button("📄 PDF로 저장 / 인쇄하기", html_btn, file_name=f"{target_major}_리포트.html", mime="text/html", use_container_width=True)
-        st.markdown(f"<div class='print-only'><h1>대입 컨설팅 리포트</h1>{final_md}</div>", unsafe_allow_html=True)
-else:
-    st.info("👈 왼쪽에서 학과를 입력하고 성적 엑셀과 생기부 PDF를 업로드해 주세요.")
+        st.markdown("---")
+        st.markdown(f"""
+        <div class="print-only">
+            <h2>대입 컨설팅 결과 리포트 ({target_major})</h2>
+        </div>
+        """, unsafe_allow_html=True)
+        st.markdown(f"<div class='print-only'>\n\n{final_report_markdown}\n\n</div>", unsafe_allow_html=True)
