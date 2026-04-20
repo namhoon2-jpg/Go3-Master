@@ -40,13 +40,12 @@ st.markdown("""
         p, li { font-size: 11pt !important; line-height: 1.6; color: #111; }
         @page { margin: 1.5cm; }
     }
-    /* 화면 가독성 개선: 리스트 간격 조정 */
     li { margin-bottom: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수
+# 3. 데이터 가공 함수들
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -139,7 +138,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (가독성 강제 및 태그 필수화)
+# 5. 분석 엔진 (프롬프트 조정 반영)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -156,9 +155,8 @@ if excel_file and pdf_file and target_major:
             
             [절대 규칙: 가독성 및 형식]
             1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식으로 작성.
-            2. 인사말 금지. [PART 1]부터 즉시 시작할 것.
-            3. 철저한 음슴체(~함, ~임) 사용.
-            4. **답변의 가장 마지막 두 줄은 반드시 아래 태그여야 함 (생략 시 오류 발생).**
+            2. 인사말 금지. [PART 1]부터 즉시 시작. 철저한 음슴체(~함, ~임) 사용.
+            3. 마지막 두 줄은 반드시 아래 태그여야 함 (생략 시 오류 발생).
                @PIE [교과: 60, 정시: 10, 종합: 30] @
                @RADAR [전공적합성: 80, 학업역량: 70, 진로탐색: 90, 리더십/인성: 80, 발전가능성: 75] @
 
@@ -169,11 +167,12 @@ if excel_file and pdf_file and target_major:
 
             [PART 2] 대입 전략 및 추천 도서
             - 전형별 액션 플랜 (개괄식)
-            - 추천 도서 3권 및 이유 (개괄식)
+            - **[농어촌 전형 유불리 판단]**: 농어촌 대상자일 경우 무조건 농어촌을 추천하지 말고, 내신과 모의고사 성적을 바탕으로 일반 전형과 비교하여 어느 쪽이 더 유리할지 객관적으로 판단하여 작성할 것.
+            - 추천 도서 3권: 도서명과 함께 선정 이유를 **'1문장으로 아주 짧고 간결하게'** 작성할 것.
 
             [PART 3] 심화 탐구 및 세특 예시
-            - 탐구 가이드(3개): 주제: / 종적/횡적 근거: (생기부 출처) / 탐구 방법:
-            - NEIS 기재용 세특 문구 예시(3개): 과목명: / 내용: (각 200자 내외)
+            - 탐구 가이드(3개): 주제: / 종적/횡적 근거: (생기부 출처 필수) / 탐구 방법:
+            - NEIS 기재용 세특 예시(3개): 과목명: / 내용: (각 200자 내외)
 
             [PART 4] 면접 예상 질문
             - 질문 3개: 질문: / 모범 답안: / 준비 방법:
@@ -190,7 +189,6 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
-    # 가시성 강화 변환 (아이콘 추가)
     p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3)
     p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', p3)
     p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', p3)
@@ -202,29 +200,24 @@ if excel_file and pdf_file and target_major:
     p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
     p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', p4)
 
-    # --- 그래프 생성 함수 ---
+    # --- 차트 렌더링 함수 ---
     def render_all_charts(suffix):
         c1, c2 = st.columns(2); c3, c4 = st.columns(2)
-        
         if not st.session_state.i_df.empty:
             c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이", labels={"등급":"등급"}), use_container_width=True, key=f"i_{suffix}")
-        
         if not st.session_state.m_df.empty:
             fig_m = px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", labels={"value":"등급", "variable":"과목"})
             fig_m.update_traces(connectgaps=True)
             c2.plotly_chart(fig_m, use_container_width=True, key=f"m_{suffix}")
         
-        # PIE 차트 (복구 로직 강화)
         p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if p_match:
             try:
                 p_items = [it.split(':') for it in p_match.group(1).split(',')]
                 p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
                 c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True, key=f"p_{suffix}")
-            except Exception as e: c3.warning(f"전형 차트 데이터 오류: {e}")
-        else: c3.warning("AI가 전형 비중 데이터를 생성하지 않았습니다.")
+            except: c3.warning("전형 차트 데이터 형식 오류")
         
-        # RADAR 차트 (복구 로직 강화)
         r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if r_match:
             try:
@@ -233,8 +226,7 @@ if excel_file and pdf_file and target_major:
                 fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
                 fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량")
                 c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
-            except Exception as e: c4.warning(f"역량 차트 데이터 오류: {e}")
-        else: c4.warning("AI가 생기부 역량 데이터를 생성하지 않았습니다.")
+            except: c4.warning("역량 차트 데이터 형식 오류")
 
     # --- 탭 구성 ---
     tab1, tab2, tab3, tab4 = st.tabs(["📊 진단 및 전략", "💡 탐구/면접 가이드", "💬 실시간 상담", "🖨️ 리포트 인쇄"])
@@ -263,9 +255,10 @@ if excel_file and pdf_file and target_major:
 
     with tab4:
         st.markdown("""
-        <div class="no-print" style="margin-bottom: 20px;">
-            <a href="javascript:window.print()" style="display: inline-block; padding: 12px 24px; background-color: #2e6bc6; color: white; text-decoration: none; border-radius: 8px; font-weight: bold;">🖨️ 리포트 인쇄하기</a>
-            <p style="font-size: 13px; color: #666; margin-top: 5px;">※ 인쇄 설정에서 '배경 그래픽'을 체크하면 그래프가 함께 인쇄됩니다.</p>
+        <div class="no-print" style="padding: 15px; background-color: #f1f8ff; border-radius: 8px; border-left: 5px solid #1a73e8; margin-bottom: 20px;">
+            <h4 style="margin-top: 0; color: #1a73e8;">🖨️ 리포트 인쇄 방법</h4>
+            <p style="margin-bottom: 5px; font-size: 15px; color: #333;"><b>1.</b> 키보드에서 <b>Ctrl + P</b> (Mac은 <b>Cmd + P</b>)를 누르세요.</p>
+            <p style="margin-bottom: 0; font-size: 15px; color: #333;"><b>2.</b> 인쇄 설정(더보기)에서 <b>'배경 그래픽(Background graphics)'</b>을 반드시 체크해야 차트가 인쇄됩니다.</p>
         </div>
         """, unsafe_allow_html=True)
         st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
