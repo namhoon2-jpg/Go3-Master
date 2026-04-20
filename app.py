@@ -25,7 +25,7 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (V74 원본 유지)
+# 2. 화면 및 인쇄 스타일 (다중 페이지 인쇄 완벽 대응)
 # ==========================================
 st.markdown("""
     <style>
@@ -38,7 +38,9 @@ st.markdown("""
         
         html, body, .stApp, .main, .block-container {
             height: auto !important;
+            min-height: auto !important;
             overflow: visible !important;
+            position: static !important;
         }
         
         .main .block-container { 
@@ -47,8 +49,8 @@ st.markdown("""
         }
         
         h2, h3, h4 { page-break-after: avoid; }
-        p, li { font-size: 11pt !important; line-height: 1.6; color: #111; }
-        .js-plotly-plot { margin-bottom: 10px; }
+        p, li { font-size: 11pt !important; line-height: 1.6; color: #111; page-break-inside: avoid; }
+        .js-plotly-plot { page-break-inside: avoid; margin-bottom: 20px; }
         
         @page { margin: 1.5cm; }
     }
@@ -125,109 +127,6 @@ def extract_section(text, start_keyword, end_keyword=None):
     return content
 
 # ==========================================
-# ★ HTML 다운로드 생성기 (컬러 강제 보존)
-# ==========================================
-def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
-    fig_i_html, fig_m_html, fig_p_html, fig_r_html = "", "", "", ""
-    if not i_df.empty:
-        fig_i = px.line(i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이", template="plotly")
-        fig_i_html = fig_i.to_html(full_html=False, include_plotlyjs='cdn')
-    if not m_df.empty:
-        fig_m = px.line(m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", template="plotly")
-        fig_m.update_traces(connectgaps=True)
-        fig_m_html = fig_m.to_html(full_html=False, include_plotlyjs=False)
-    p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
-    if p_match:
-        try:
-            p_items = [it.split(':') for it in p_match.group(1).split(',')]
-            p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
-            fig_p = px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율", template="plotly")
-            fig_p_html = fig_p.to_html(full_html=False, include_plotlyjs=False)
-        except: pass
-    r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
-    if r_match:
-        try:
-            r_items = [it.split(':') for it in r_match.group(1).split(',')]
-            r_labels = [k.strip() for k, v in r_items]
-            r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
-            fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
-            fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단", template="plotly")
-            fig_r_html = fig_r.to_html(full_html=False, include_plotlyjs=False)
-        except: pass
-
-    def md_to_html(text):
-        t = text.replace('**', '')
-        t = re.sub(r'#### (.*)', r'<strong>\1</strong>', t)
-        t = re.sub(r'### (.*)', r'<h3>\1</h3>', t)
-        return t.replace('\n', '<br>')
-
-    html = f"""
-    <!DOCTYPE html>
-    <html lang="ko">
-    <head>
-        <meta charset="UTF-8">
-        <title>대입 컨설팅 리포트 ({target_major})</title>
-        <style>
-            :root {{
-                color-scheme: light only !important;
-            }}
-            html, body {{
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-                background-color: #ffffff !important;
-            }}
-            body {{ font-family: 'Malgun Gothic', sans-serif; padding: 40px; color: #111; line-height: 1.8; max-width: 1000px; margin: auto; }}
-            h2 {{ text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 30px; }}
-            h3 {{ color: #1a73e8; border-left: 5px solid #1a73e8; padding-left: 12px; margin-top: 40px; }}
-            .charts {{ display: flex; flex-wrap: wrap; justify-content: space-between; page-break-inside: avoid; margin-bottom: 40px; }}
-            .chart {{ width: 48%; margin-bottom: 20px; }}
-            
-            .print-alert {{
-                background-color: #fff3cd; color: #856404; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba; margin-bottom: 30px; font-weight: bold;
-            }}
-            
-            @media print {{ 
-                body {{ padding: 0; }} 
-                .chart {{ page-break-inside: avoid; }} 
-                .print-alert {{ display: none !important; }}
-                
-                *, svg, path, rect, g, text, circle, line {{
-                    -webkit-print-color-adjust: exact !important;
-                    print-color-adjust: exact !important;
-                    color-adjust: exact !important;
-                    filter: none !important;
-                }}
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="print-alert">
-            🚨 <b>잠깐! 인쇄 전 필독:</b> 키보드 <code>Ctrl + P</code>를 누르신 후, 우측 설정 창에서 <b>[더보기]</b>를 누르고 <b>[배경 그래픽]</b> 항목을 <b>반드시 체크(☑️)</b> 해주세요!
-        </div>
-        
-        <h2>🎓 대입 컨설팅 종합 리포트 ({target_major})</h2>
-        <div class="charts">
-            <div class="chart">{fig_i_html}</div>
-            <div class="chart">{fig_m_html}</div>
-            <div class="chart">{fig_p_html}</div>
-            <div class="chart">{fig_r_html}</div>
-        </div>
-        <div>
-            <h3>📝 [PART 1] 종합 진단</h3>
-            <p>{md_to_html(p1)}</p>
-            <h3>🎯 [PART 2] 대입 전략 및 보완책</h3>
-            <p>{md_to_html(p2)}</p>
-            <h3>🚀 [PART 3] 심화 탐구 및 세특 예시</h3>
-            <p>{md_to_html(p3)}</p>
-            <h3>🎤 [PART 4] 면접 질문</h3>
-            <p>{md_to_html(p4)}</p>
-        </div>
-    </body>
-    </html>
-    """
-    return html
-
-# ==========================================
 # 4. 메인 UI 구성
 # ==========================================
 st.set_page_config(page_title="고3 대입 전문 컨설팅 시스템", layout="wide")
@@ -254,7 +153,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (PART 2 수상경력 배제 조건 추가)
+# 5. 분석 엔진 (농어촌 로직 및 현실적 전형 추천 원칙 적용)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -277,6 +176,11 @@ if excel_file and pdf_file and target_major:
                @PIE [교과: X, 종합: Y, 정시: Z] @ (X, Y, Z에는 실제 비율 숫자 기입, 합계 100)
                @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100 숫자)
 
+            [🔥 전형 추천 및 원형/방사형 그래프 논리 일치 원칙]
+            1. **데이터 종합 판단**: 학생의 '내신 성적', '모의고사 성적', 그리고 직접 평가한 '생기부 방사형(RADAR) 역량 점수'를 종합하여 가장 유리한 주력 전형을 도출할 것.
+            2. **5등급 이하 & 생기부 부실 학생의 현실적 전략**: 평균 내신 성적이 5등급 이하이거나, 생기부 기록이 빈약하여 RADAR 점수가 낮다면 '종합전형'을 우선 추천하는 것은 현실과 맞지 않음. 이 경우 종합전형보다 **'교과전형'의 추천 비율(X)을 무조건 더 높게** 설정하여 원형 그래프(@PIE)에 반영할 것.
+            3. 진단 내용([PART 1, 2])과 추천 전형 비율(@PIE 차트)은 완벽히 논리적으로 부합해야 함.
+
             [작성 가이드]
             [PART 1] 종합 진단
             - 내신/모의고사 등급 분석 (수치 기반)
@@ -285,15 +189,12 @@ if excel_file and pdf_file and target_major:
             [PART 2] 대입 전략, 농어촌 전략, 생기부 보완, 추천 도서
             - 전형별 액션 플랜 (개괄식): 교과전형, 종합전형 등의 제목에서 '(농어촌)' 표기를 삭제할 것. 농어촌 관련 특이사항은 해당 전형 하위 항목에 자연스럽게 포함하여 분석할 것.
             - **[농어촌 전형 전략 (주의!)]**: 농어촌 전형은 매년 입결 컷의 변동성이 매우 큰 전형임. 절대 "무조건 유리하다"고 단정하지 말 것. 안정/적정 지원은 일반 전형으로 고려하되, 농어촌 전형은 상향 지원 시 일반 종합 전형보다 합격 가능성을 보완하는 '전략적 조커'로 활용하라는 냉정한 가이드라인을 제시할 것.
-            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시. (단, 현재 대입에 반영되지 않는 '수상 경력', '자율동아리' 등은 보완 전략에서 절대 언급하지 말 것)
+            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시.
             - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
 
             [PART 3] 심화 탐구 및 세특 예시
-            - 아래 4단계를 하나의 세트로 묶어서 총 3개 세트를 작성할 것.
-              1. 주제: (심화 탐구 주제)
-              2. 종적/횡적 근거: (생기부에서 'X학년 X학기 OO활동' 등 구체적 출처 반드시 인용)
-              3. 탐구 방법: (위 주제를 어떻게 탐구할 것인지 구체적인 액션 플랜)
-              4. 세특 예시: (위 탐구 방법을 수행했을 때 기재될 수 있는 좋은 세특 예시 문구, 200자 내외)
+            - 탐구 가이드(3개): 주제: / 종적/횡적 근거: (생기부 출처 필수) / 탐구 방법:
+            - NEIS 기재용 세특 예시(3개): 과목명: / 내용: (각 200자 내외)
 
             [PART 4] 면접 예상 질문
             - 질문 3개: 질문: / 모범 답안: / 준비 방법:
@@ -317,7 +218,9 @@ if excel_file and pdf_file and target_major:
     p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3)
     p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', p3)
     p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', p3)
-    p3 = re.sub(r'(?i)세특\s*예시\s*:', '✍️ **세특 예시:**', p3)
+    p3 = re.sub(r'(?i)NEIS\s*기재용\s*세특\s*문구\s*예시\s*:', '### ✍️ NEIS 기재용 세특 문구 예시', p3)
+    p3 = re.sub(r'(?i)과목명\s*:', '📘 **과목명:**', p3)
+    p3 = re.sub(r'(?i)내용\s*:', '📝 **내용:**', p3)
     
     p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4)
     p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
@@ -337,7 +240,8 @@ if excel_file and pdf_file and target_major:
         if p_match:
             try:
                 p_items = [it.split(':') for it in p_match.group(1).split(',')]
-                p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
+                # 에러 방지용 안전장치 (or 0) 추가
+                p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v) or 0)} for k, v in p_items])
                 c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율"), use_container_width=True, key=f"p_{suffix}")
             except: c3.warning("전형 차트 데이터 형식 오류")
         
@@ -345,7 +249,9 @@ if excel_file and pdf_file and target_major:
         if r_match:
             try:
                 r_items = [it.split(':') for it in r_match.group(1).split(',')]
-                r_labels = [k.strip() for k, v in r_items]; r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
+                r_labels = [k.strip() for k, v in r_items]
+                # 에러 방지용 안전장치 (or 0) 추가
+                r_values = [int(re.sub(r'[^0-9]', '', v) or 0) for k, v in r_items]
                 fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
                 fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단")
                 c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
@@ -362,7 +268,7 @@ if excel_file and pdf_file and target_major:
         st.markdown(f"### 🎯 [PART 2] 대입 전략 및 보완책\n\n{p2}")
 
     with tab2:
-        st.markdown(f"### 🚀 [PART 3] 심화 탐구 및 세특 예시\n\n{p3}")
+        st.markdown(f"### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}")
         st.divider()
         st.markdown(f"### 🎤 [PART 4] 면접 예상 질문\n\n{p4}")
 
@@ -378,24 +284,12 @@ if excel_file and pdf_file and target_major:
 
     with tab4:
         st.markdown("""
-        <div class="no-print" style="padding: 15px; background-color: #f8f9fa; border-radius: 8px; border: 2px solid #1a73e8; margin-bottom: 20px;">
-            <h3 style="margin-top: 0; color: #1a73e8;">🖨️ 완벽 인쇄를 위한 HTML 다운로드</h3>
-            <p style="margin-bottom: 10px; font-size: 15px; color: #333;">스트림릿 화면 인쇄 시 1페이지만 출력되는 문제를 해결하기 위해 <b>그래프가 모두 포함된 HTML 파일 다운로드</b> 기능을 제공합니다.</p>
-            <p style="margin-bottom: 5px; font-size: 14px; color: #d93025; font-weight: bold;">[사용 방법]</p>
-            <p style="margin-bottom: 0; font-size: 14px; color: #555;">1. 아래 버튼을 눌러 HTML 파일을 다운로드합니다.<br>2. 다운로드된 파일을 더블클릭하여 크롬(Chrome) 브라우저로 엽니다.<br>3. 키보드 <b>Ctrl + P</b>를 누르면 <b>잘림 없이 완벽하게 인쇄</b>됩니다.</p>
+        <div class="no-print" style="padding: 15px; background-color: #f1f8ff; border-radius: 8px; border-left: 5px solid #1a73e8; margin-bottom: 20px;">
+            <h4 style="margin-top: 0; color: #1a73e8;">🖨️ 리포트 다중 페이지 인쇄 방법</h4>
+            <p style="margin-bottom: 5px; font-size: 15px; color: #333;"><b>1.</b> 키보드에서 <b>Ctrl + P</b> (Mac은 Cmd + P)를 누르세요.</p>
+            <p style="margin-bottom: 0; font-size: 15px; color: #333;"><b>2.</b> 인쇄 설정(더보기)에서 <b>'배경 그래픽(Background graphics)'</b>을 반드시 체크해야 차트가 인쇄됩니다.</p>
         </div>
         """, unsafe_allow_html=True)
-        
-        # HTML 다운로드 버튼 추가
-        html_data = create_html_report(target_major, p1, p2, p3, p4, res, st.session_state.i_df, st.session_state.m_df)
-        st.download_button(
-            label="📄 완벽 인쇄용 HTML 다운로드",
-            data=html_data,
-            file_name=f"{target_major}_컨설팅_리포트.html",
-            mime="text/html",
-            use_container_width=True
-        )
-        st.divider()
         st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
         render_all_charts("tab4")
         st.divider()
