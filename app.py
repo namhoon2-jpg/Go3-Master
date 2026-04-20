@@ -25,17 +25,19 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (다중 페이지 인쇄 완벽 대응)
+# 2. 화면 및 인쇄 스타일 (우측 잘림 완벽 방지)
 # ==========================================
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
     
     @media print {
+        /* 불필요한 UI 숨기기 */
         [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, .stTabs [role="tablist"] {
             display: none !important;
         }
         
+        /* 다중 페이지 인쇄 시 스크롤 해제 */
         html, body, .stApp, .main, .block-container {
             height: auto !important;
             min-height: auto !important;
@@ -47,7 +49,20 @@ st.markdown("""
             max-width: 100% !important; 
             padding: 0 !important; 
         }
+
+        /* 💡 [핵심 해결책] 인쇄 시 2단 컬럼을 강제로 1단(100% 너비)으로 풀어서 우측 잘림 방지 */
+        [data-testid="column"], [data-testid="stColumn"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
+            max-width: 100% !important;
+            min-width: 100% !important;
+            display: block !important;
+            margin-bottom: 20px !important;
+        }
         
+        .stPlotlyChart { width: 100% !important; }
+        
+        /* 페이지 넘김 시 글자 및 차트 잘림 방지 */
         h2, h3, h4 { page-break-after: avoid; }
         p, li { font-size: 11pt !important; line-height: 1.6; color: #111; page-break-inside: avoid; }
         .js-plotly-plot { page-break-inside: avoid; margin-bottom: 20px; }
@@ -153,7 +168,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (농어촌 로직 및 순서 최적화)
+# 5. 분석 엔진 (논리 일치 및 가독성 최적화)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -183,6 +198,7 @@ if excel_file and pdf_file and target_major:
 
             [PART 2] 대입 전략, 농어촌 전략, 생기부 보완, 추천 도서
             - 전형별 액션 플랜 (개괄식): 교과전형, 종합전형 등의 제목에서 '(농어촌)' 표기를 삭제할 것. 농어촌 관련 특이사항은 해당 전형 하위 항목에 자연스럽게 포함하여 분석할 것.
+            - **[논리 일치 필수]**: 여기서 가장 유리하다고 추천한 전형이 반드시 마지막 @PIE 태그에서 가장 높은 비율(1위)을 차지해야 함.
             - **[농어촌 전형 전략 (주의!)]**: 농어촌 전형은 매년 입결 컷의 변동성이 매우 큰 전형임. 절대 "무조건 유리하다"고 단정하지 말 것. 안정/적정 지원은 일반 전형으로 고려하되, 농어촌 전형은 상향 지원 시 일반 종합 전형보다 합격 가능성을 보완하는 '전략적 조커'로 활용하라는 냉정한 가이드라인을 제시할 것.
             - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시.
             - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
@@ -257,7 +273,7 @@ if excel_file and pdf_file and target_major:
         render_all_charts("tab1")
         st.divider()
         st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}")
-        st.markdown(f"### 🎯 [PART 2] 대입 전략 및 보완책\n\n{p2}")
+        st.markdown(f"### 🎯 [PART 2] 대입 전략 및 생기부 보완\n\n{p2}")
 
     with tab2:
         st.markdown(f"### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}")
@@ -280,11 +296,12 @@ if excel_file and pdf_file and target_major:
             <h4 style="margin-top: 0; color: #1a73e8;">🖨️ 리포트 다중 페이지 인쇄 방법</h4>
             <p style="margin-bottom: 5px; font-size: 15px; color: #333;"><b>1.</b> 키보드에서 <b>Ctrl + P</b> (Mac은 Cmd + P)를 누르세요.</p>
             <p style="margin-bottom: 0; font-size: 15px; color: #333;"><b>2.</b> 인쇄 설정(더보기)에서 <b>'배경 그래픽(Background graphics)'</b>을 반드시 체크해야 차트가 인쇄됩니다.</p>
+            <p style="margin-bottom: 0; font-size: 15px; color: #d93025; font-weight: bold;">💡 (중요) 인쇄 시 차트 잘림 방지를 위해 4개의 차트가 세로로 큼직하게 자동 정렬됩니다.</p>
         </div>
         """, unsafe_allow_html=True)
         st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
         render_all_charts("tab4")
         st.divider()
-        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}\n\n### 🎯 [PART 2] 대입 전략 및 보완책\n\n{p2}\n\n### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}\n\n### 🎤 [PART 4] 면접 질문\n\n{p4}")
+        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}\n\n### 🎯 [PART 2] 대입 전략 및 생기부 보완\n\n{p2}\n\n### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}\n\n### 🎤 [PART 4] 면접 질문\n\n{p4}")
 else:
     st.info("👈 왼쪽 사이드바에 정보를 입력하고 파일을 업로드해 주세요.")
