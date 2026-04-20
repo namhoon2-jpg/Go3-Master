@@ -125,21 +125,17 @@ def extract_section(text, start_keyword, end_keyword=None):
     return content
 
 # ==========================================
-# ★ HTML 다운로드 생성기 (그래프 테마 독립화!)
+# ★ HTML 다운로드 생성기 (컬러 강제 보존)
 # ==========================================
 def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
     fig_i_html, fig_m_html, fig_p_html, fig_r_html = "", "", "", ""
-    
-    # 💡 template="plotly"를 추가하여 스트림릿 밖에서도 고유 컬러를 유지하게 강제함
     if not i_df.empty:
         fig_i = px.line(i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이", template="plotly")
         fig_i_html = fig_i.to_html(full_html=False, include_plotlyjs='cdn')
-        
     if not m_df.empty:
         fig_m = px.line(m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", template="plotly")
         fig_m.update_traces(connectgaps=True)
         fig_m_html = fig_m.to_html(full_html=False, include_plotlyjs=False)
-        
     p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
     if p_match:
         try:
@@ -148,7 +144,6 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
             fig_p = px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율", template="plotly")
             fig_p_html = fig_p.to_html(full_html=False, include_plotlyjs=False)
         except: pass
-        
     r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
     if r_match:
         try:
@@ -259,7 +254,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (PART 3 세특 예시 연결 로직 유지)
+# 5. 분석 엔진 (PART 2 수상경력 배제 조건 추가)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -290,7 +285,7 @@ if excel_file and pdf_file and target_major:
             [PART 2] 대입 전략, 농어촌 전략, 생기부 보완, 추천 도서
             - 전형별 액션 플랜 (개괄식): 교과전형, 종합전형 등의 제목에서 '(농어촌)' 표기를 삭제할 것. 농어촌 관련 특이사항은 해당 전형 하위 항목에 자연스럽게 포함하여 분석할 것.
             - **[농어촌 전형 전략 (주의!)]**: 농어촌 전형은 매년 입결 컷의 변동성이 매우 큰 전형임. 절대 "무조건 유리하다"고 단정하지 말 것. 안정/적정 지원은 일반 전형으로 고려하되, 농어촌 전형은 상향 지원 시 일반 종합 전형보다 합격 가능성을 보완하는 '전략적 조커'로 활용하라는 냉정한 가이드라인을 제시할 것.
-            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시.
+            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시. (단, 현재 대입에 반영되지 않는 '수상 경력', '자율동아리' 등은 보완 전략에서 절대 언급하지 말 것)
             - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
 
             [PART 3] 심화 탐구 및 세특 예시
