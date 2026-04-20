@@ -1,9 +1,6 @@
 streamlit
-google-generativeai
 pandas
 plotly
 pdfplumber
-openpyxl
-google-api-python-client
-google-auth-oauthlib
-google-auth-httplib2
+requests
+google-cloud-aiplatform
