@@ -25,7 +25,7 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일
+# 2. 화면 및 인쇄 스타일 (V74 원본 유지)
 # ==========================================
 st.markdown("""
     <style>
@@ -140,7 +140,8 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
     if p_match:
         try:
             p_items = [it.split(':') for it in p_match.group(1).split(',')]
-            p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
+            p_items = [it for it in p_items if len(it) >= 2]
+            p_df = pd.DataFrame([{"전형": it[0].strip(), "비중": int(re.sub(r'[^0-9]', '', it[1]) or 0)} for it in p_items])
             fig_p = px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율", template="plotly")
             fig_p_html = fig_p.to_html(full_html=False, include_plotlyjs=False)
         except: pass
@@ -148,8 +149,9 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
     if r_match:
         try:
             r_items = [it.split(':') for it in r_match.group(1).split(',')]
-            r_labels = [k.strip() for k, v in r_items]
-            r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
+            r_items = [it for it in r_items if len(it) >= 2]
+            r_labels = [it[0].strip() for it in r_items]
+            r_values = [int(re.sub(r'[^0-9]', '', it[1]) or 0) for it in r_items]
             fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
             fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단", template="plotly")
             fig_r_html = fig_r.to_html(full_html=False, include_plotlyjs=False)
@@ -246,7 +248,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (💡 프롬프트만 정밀 수정)
+# 5. 분석 엔진 (💡 프롬프트 및 가독성 로직 정밀 수정)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -287,7 +289,8 @@ if excel_file and pdf_file and target_major:
             - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
 
             [PART 3] 심화 탐구 및 세특 예시
-            - 총 3개의 심화 탐구를 제안하되, **'1세트', '2세트' 같은 세트 번호나 각 항목 앞의 숫자(1, 2, 3, 4 등)를 절대 쓰지 말 것.** 반드시 아래 키워드 형식 그대로 순서에 맞춰 3번 반복 작성할 것:
+            - 총 3개의 심화 탐구를 제안하되, **'1세트', '2세트' 같은 세트 번호나 각 항목 앞의 숫자(1, 2, 3, 4 등)를 절대 쓰지 말 것.** - **각 항목(주제, 근거, 방법, 예시) 사이에는 반드시 줄바꿈을 두어 가독성을 극대화할 것.**
+            - 반드시 아래 키워드 형식 그대로 순서에 맞춰 3번 반복 작성할 것:
             주제: (심화 탐구 주제)
             종적/횡적 근거: (생기부에서 'X학년 X학기 OO활동' 등 구체적 출처 반드시 인용)
             탐구 방법: (위 주제를 어떻게 탐구할 것인지 구체적인 액션 플랜)
@@ -308,14 +311,14 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
-    # 가시성 강화 변환 (아이콘 추가)
+    # 가시성 강화 변환 (아이콘 추가 및 💡 강제 줄바꿈 삽입)
     p2 = re.sub(r'(?i)농어촌\s*전형\s*전략|농어촌\s*전형\s*유불리\s*판단', '⚖️ **농어촌 전형 전략**', p2)
     p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '🛠️ **생기부 보완 전략**', p2)
 
-    p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3)
-    p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', p3)
-    p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', p3)
-    p3 = re.sub(r'(?i)세특\s*예시\s*:', '✍️ **세특 예시:**', p3)
+    p3 = re.sub(r'(?i)주제\s*:', '\n\n#### 📍 주제:', p3)
+    p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '\n🔍 **종적/횡적 근거:**', p3)
+    p3 = re.sub(r'(?i)탐구\s*방법\s*:', '\n🛠️ **탐구 방법:**', p3)
+    p3 = re.sub(r'(?i)세특\s*예시\s*:', '\n✍️ **세특 예시:**', p3)
     
     p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4)
     p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
@@ -335,7 +338,8 @@ if excel_file and pdf_file and target_major:
         if p_match:
             try:
                 p_items = [it.split(':') for it in p_match.group(1).split(',')]
-                p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v) or 0)} for k, v in p_items])
+                p_items = [it for it in p_items if len(it) >= 2]
+                p_df = pd.DataFrame([{"전형": it[0].strip(), "비중": int(re.sub(r'[^0-9]', '', it[1]) or 0)} for it in p_items])
                 c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율"), use_container_width=True, key=f"p_{suffix}")
             except: c3.warning("전형 차트 데이터 형식 오류")
         
@@ -343,8 +347,9 @@ if excel_file and pdf_file and target_major:
         if r_match:
             try:
                 r_items = [it.split(':') for it in r_match.group(1).split(',')]
-                r_labels = [k.strip() for k, v in r_items]
-                r_values = [int(re.sub(r'[^0-9]', '', v) or 0) for k, v in r_items]
+                r_items = [it for it in r_items if len(it) >= 2]
+                r_labels = [it[0].strip() for it in r_items]
+                r_values = [int(re.sub(r'[^0-9]', '', it[1]) or 0) for it in r_items]
                 fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
                 fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단")
                 c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
