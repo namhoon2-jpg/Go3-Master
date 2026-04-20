@@ -40,11 +40,13 @@ st.markdown("""
         p, li { font-size: 11pt !important; line-height: 1.6; color: #111; }
         @page { margin: 1.5cm; }
     }
+    /* 화면 가독성 개선: 리스트 간격 조정 */
+    li { margin-bottom: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수들 (결측치 방어 및 6과목 추출)
+# 3. 데이터 가공 함수
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -137,7 +139,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (심화 프롬프트 전략)
+# 5. 분석 엔진 (가독성 강제 및 태그 필수화)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -152,24 +154,35 @@ if excel_file and pdf_file and target_major:
             입시 컨설턴트로서 {target_major} 지망 학생 분석. {rural_inst}
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:12000]}), 지식({k_base[:5000]})
             
-            [절대 규칙] 
-            1. 인사말 금지. [PART 1]부터 음슴체로 즉시 출력.
-            2. 내신/모의고사 수치는 '등급'임. 하락 시 '점수'가 아닌 '등급' 단위로 분석.
-            3. 마지막에 @PIE [...] @ 및 @RADAR [...] @ 태그 포함 필수.
+            [절대 규칙: 가독성 및 형식]
+            1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식으로 작성.
+            2. 인사말 금지. [PART 1]부터 즉시 시작할 것.
+            3. 철저한 음슴체(~함, ~임) 사용.
+            4. **답변의 가장 마지막 두 줄은 반드시 아래 태그여야 함 (생략 시 오류 발생).**
+               @PIE [교과: 60, 정시: 10, 종합: 30] @
+               @RADAR [전공적합성: 80, 학업역량: 70, 진로탐색: 90, 리더십/인성: 80, 발전가능성: 75] @
 
             [작성 가이드]
-            [PART 1] 종합 진단: 내신/모의고사 전 과목 등급 추이를 수치 기반으로 5줄 이상 심층 분석. 지원 전공 관련 핵심 과목 세특의 누락/부실 여부를 날카롭게 지적할 것.
-            [PART 2] 대입 전략 및 추천 도서: 전형별(교과, 종합, 논술 등) 액션 플랜을 매우 구체적으로 제시하고, 학과 관련 추천 도서 3권(도서명, 선정 이유)을 포함할 것.
-            [PART 3] 심화 탐구 및 세특 예시: 
-                     - 탐구 가이드(3가지): 주제: / 종적/횡적 근거: (생기부 출처 명시) / 탐구 방법: 
-                     - **NEIS 기재용 세특 문구 예시(3가지)**: 실제 생활기록부 세특에 바로 기재 가능한 수준의 전문가용 문구(각 200자 내외).
-            [PART 4] 면접 예상 질문: (3가지) 질문: / 모범 답안: (매우 상세히) / 준비 방법: 
+            [PART 1] 종합 진단
+            - 내신/모의고사 등급 분석 (수치 기반)
+            - 전공 관련 세특 누락/부실 지적 필수 (반드시 개괄식)
+
+            [PART 2] 대입 전략 및 추천 도서
+            - 전형별 액션 플랜 (개괄식)
+            - 추천 도서 3권 및 이유 (개괄식)
+
+            [PART 3] 심화 탐구 및 세특 예시
+            - 탐구 가이드(3개): 주제: / 종적/횡적 근거: (생기부 출처) / 탐구 방법:
+            - NEIS 기재용 세특 문구 예시(3개): 과목명: / 내용: (각 200자 내외)
+
+            [PART 4] 면접 예상 질문
+            - 질문 3개: 질문: / 모범 답안: / 준비 방법:
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
             st.session_state.i_df, st.session_state.m_df = i_df, m_df
 
-    # --- 데이터 후처리 및 UI 렌더링 ---
+    # --- 데이터 후처리 ---
     res = st.session_state.analysis_result
     clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL).strip()
     p1 = extract_section(clean_res, "PART 1", "PART 2")
@@ -177,35 +190,42 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
-    # 가시성 강화 변환
+    # 가시성 강화 변환 (아이콘 추가)
     p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3)
     p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', p3)
     p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', p3)
     p3 = re.sub(r'(?i)NEIS\s*기재용\s*세특\s*문구\s*예시\s*:', '### ✍️ NEIS 기재용 세특 문구 예시', p3)
+    p3 = re.sub(r'(?i)과목명\s*:', '📘 **과목명:**', p3)
+    p3 = re.sub(r'(?i)내용\s*:', '📝 **내용:**', p3)
     
     p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4)
     p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
     p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', p4)
 
-    # 그래프 함수 (중복 ID 해결)
+    # --- 그래프 생성 함수 ---
     def render_all_charts(suffix):
         c1, c2 = st.columns(2); c3, c4 = st.columns(2)
+        
         if not st.session_state.i_df.empty:
             c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이", labels={"등급":"등급"}), use_container_width=True, key=f"i_{suffix}")
+        
         if not st.session_state.m_df.empty:
             fig_m = px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", labels={"value":"등급", "variable":"과목"})
             fig_m.update_traces(connectgaps=True)
             c2.plotly_chart(fig_m, use_container_width=True, key=f"m_{suffix}")
         
-        p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res)
+        # PIE 차트 (복구 로직 강화)
+        p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if p_match:
             try:
                 p_items = [it.split(':') for it in p_match.group(1).split(',')]
                 p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
                 c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True, key=f"p_{suffix}")
-            except: pass
+            except Exception as e: c3.warning(f"전형 차트 데이터 오류: {e}")
+        else: c3.warning("AI가 전형 비중 데이터를 생성하지 않았습니다.")
         
-        r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res)
+        # RADAR 차트 (복구 로직 강화)
+        r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if r_match:
             try:
                 r_items = [it.split(':') for it in r_match.group(1).split(',')]
@@ -213,7 +233,8 @@ if excel_file and pdf_file and target_major:
                 fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
                 fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량")
                 c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
-            except: pass
+            except Exception as e: c4.warning(f"역량 차트 데이터 오류: {e}")
+        else: c4.warning("AI가 생기부 역량 데이터를 생성하지 않았습니다.")
 
     # --- 탭 구성 ---
     tab1, tab2, tab3, tab4 = st.tabs(["📊 진단 및 전략", "💡 탐구/면접 가이드", "💬 실시간 상담", "🖨️ 리포트 인쇄"])
