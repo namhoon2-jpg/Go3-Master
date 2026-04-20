@@ -25,32 +25,38 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (우측 잘림 완벽 방지)
+# 2. 화면 및 인쇄 스타일 (다중 페이지 잘림 완벽 해결 CSS)
 # ==========================================
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
     
     @media print {
-        /* 불필요한 UI 숨기기 */
+        /* 1. 불필요한 UI 완벽 숨기기 */
         [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, .stTabs [role="tablist"] {
             display: none !important;
         }
         
-        /* 다중 페이지 인쇄 시 스크롤 해제 */
-        html, body, .stApp, .main, .block-container {
+        /* 2. [핵심] 스트림릿의 모든 스크롤 컨테이너 족쇄 풀기 (다중 페이지 인쇄의 비결) */
+        html, body, .stApp, .main, 
+        [data-testid="stAppViewContainer"], 
+        [data-testid="stMainBlockContainer"],
+        .block-container {
             height: auto !important;
             min-height: auto !important;
+            max-height: none !important;
             overflow: visible !important;
-            position: static !important;
+            position: relative !important;
+            display: block !important;
         }
         
+        /* 3. 인쇄 시 여백 제거하여 화면 넓게 쓰기 */
         .main .block-container { 
             max-width: 100% !important; 
             padding: 0 !important; 
         }
 
-        /* 💡 [핵심 해결책] 인쇄 시 2단 컬럼을 강제로 1단(100% 너비)으로 풀어서 우측 잘림 방지 */
+        /* 4. 차트 우측 잘림 방지 (2단 컬럼을 1단으로 강제 정렬) */
         [data-testid="column"], [data-testid="stColumn"] {
             width: 100% !important;
             flex: 1 1 100% !important;
@@ -58,14 +64,14 @@ st.markdown("""
             min-width: 100% !important;
             display: block !important;
             margin-bottom: 20px !important;
+            page-break-inside: avoid !important;
         }
         
-        .stPlotlyChart { width: 100% !important; }
+        .stPlotlyChart { width: 100% !important; page-break-inside: avoid !important; }
         
-        /* 페이지 넘김 시 글자 및 차트 잘림 방지 */
-        h2, h3, h4 { page-break-after: avoid; }
-        p, li { font-size: 11pt !important; line-height: 1.6; color: #111; page-break-inside: avoid; }
-        .js-plotly-plot { page-break-inside: avoid; margin-bottom: 20px; }
+        /* 5. 페이지 넘김 시 글자 및 차트 반토막 방지 */
+        h2, h3, h4 { page-break-after: avoid; margin-top: 25px; border-left: 5px solid #2e6bc6; padding-left: 10px; }
+        p, li { font-size: 11.5pt !important; line-height: 1.6; color: #000; page-break-inside: avoid; }
         
         @page { margin: 1.5cm; }
     }
@@ -222,7 +228,6 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
-    # 가시성 강화 변환 (아이콘 추가)
     p2 = re.sub(r'(?i)농어촌\s*전형\s*전략|농어촌\s*전형\s*유불리\s*판단', '⚖️ **농어촌 전형 전략**', p2)
     p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '🛠️ **생기부 보완 전략**', p2)
 
@@ -296,7 +301,6 @@ if excel_file and pdf_file and target_major:
             <h4 style="margin-top: 0; color: #1a73e8;">🖨️ 리포트 다중 페이지 인쇄 방법</h4>
             <p style="margin-bottom: 5px; font-size: 15px; color: #333;"><b>1.</b> 키보드에서 <b>Ctrl + P</b> (Mac은 Cmd + P)를 누르세요.</p>
             <p style="margin-bottom: 0; font-size: 15px; color: #333;"><b>2.</b> 인쇄 설정(더보기)에서 <b>'배경 그래픽(Background graphics)'</b>을 반드시 체크해야 차트가 인쇄됩니다.</p>
-            <p style="margin-bottom: 0; font-size: 15px; color: #d93025; font-weight: bold;">💡 (중요) 인쇄 시 차트 잘림 방지를 위해 4개의 차트가 세로로 큼직하게 자동 정렬됩니다.</p>
         </div>
         """, unsafe_allow_html=True)
         st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
