@@ -3,4 +3,4 @@ pandas
 plotly
 pdfplumber
 requests
-google-cloud-aiplatform
+google-generativeai
