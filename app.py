@@ -32,12 +32,10 @@ st.markdown("""
     .stApp { background-color: #ffffff; }
     
     @media print {
-        /* 불필요한 UI 숨기기 */
         [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, .stTabs [role="tablist"] {
             display: none !important;
         }
         
-        /* 1페이지 잘림 방지: 스크롤 및 고정 높이 해제 */
         html, body, .stApp, .main, .block-container {
             height: auto !important;
             min-height: auto !important;
@@ -50,7 +48,6 @@ st.markdown("""
             padding: 0 !important; 
         }
         
-        /* 페이지 넘김 시 레이아웃 보호 */
         h2, h3, h4 { page-break-after: avoid; }
         p, li { font-size: 11pt !important; line-height: 1.6; color: #111; page-break-inside: avoid; }
         .js-plotly-plot { page-break-inside: avoid; margin-bottom: 20px; }
@@ -156,7 +153,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (생기부 보완 전략 추가)
+# 5. 분석 엔진 (논리 일치 프롬프트 적용)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -175,8 +172,9 @@ if excel_file and pdf_file and target_major:
             1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식으로 작성.
             2. 인사말 금지. [PART 1]부터 즉시 시작. 철저한 음슴체(~함, ~임) 사용.
             3. 마지막 두 줄은 반드시 아래 태그여야 함 (생략 시 오류 발생).
-               @PIE [교과: 60, 정시: 10, 종합: 30] @
-               @RADAR [전공적합성: 80, 학업역량: 70, 진로탐색: 90, 리더십/인성: 80, 발전가능성: 75] @
+               단, 예시 숫자를 베끼지 말고 **반드시 본인의 분석 결과와 일치하도록 숫자를 계산**하여 넣을 것.
+               @PIE [교과: X, 종합: Y, 정시: Z] @ (X, Y, Z에는 실제 비율 숫자 기입, 합계 100)
+               @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100 숫자)
 
             [작성 가이드]
             [PART 1] 종합 진단
@@ -185,8 +183,9 @@ if excel_file and pdf_file and target_major:
 
             [PART 2] 대입 전략, 생기부 보완, 추천 도서
             - 전형별 액션 플랜 (개괄식)
-            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 남은 학기 동안 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시 (필수)
-            - **[농어촌 전형 유불리 판단]**: 농어촌 대상자일 경우 무조건 추천하지 말고, 내신과 모의고사 성적을 바탕으로 일반 전형과 객관적으로 유불리 비교 판단.
+            - **[논리 일치 필수]**: 여기서 가장 유리하다고 추천한 전형(예: 종합전형)이 반드시 마지막 @PIE 태그에서 가장 높은 비율(1위)을 차지해야 함. 텍스트와 그래프 결과가 엇갈리면 안 됨.
+            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시.
+            - **[농어촌 전형 유불리 판단]**: 농어촌 대상자일 경우 무조건 추천하지 말고, 내신과 모의고사 성적을 바탕으로 일반 전형과 객관적으로 유불리 비교.
             - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
 
             [PART 3] 심화 탐구 및 세특 예시
@@ -238,7 +237,7 @@ if excel_file and pdf_file and target_major:
             try:
                 p_items = [it.split(':') for it in p_match.group(1).split(',')]
                 p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
-                c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True, key=f"p_{suffix}")
+                c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율"), use_container_width=True, key=f"p_{suffix}")
             except: c3.warning("전형 차트 데이터 형식 오류")
         
         r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
@@ -247,7 +246,7 @@ if excel_file and pdf_file and target_major:
                 r_items = [it.split(':') for it in r_match.group(1).split(',')]
                 r_labels = [k.strip() for k, v in r_items]; r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
                 fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
-                fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량")
+                fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단")
                 c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
             except: c4.warning("역량 차트 데이터 형식 오류")
 
