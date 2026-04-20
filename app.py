@@ -25,7 +25,7 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (다중 페이지 인쇄 완벽 대응)
+# 2. 화면 및 인쇄 스타일 (다중 페이지 인쇄 완벽 대응 CSS 추가)
 # ==========================================
 st.markdown("""
     <style>
@@ -36,11 +36,26 @@ st.markdown("""
             display: none !important;
         }
         
-        html, body, .stApp, .main, .block-container {
+        /* 💡 다중 페이지 인쇄 고질병 해결을 위한 강제 해제 코드 */
+        html, body, #root, .stApp, [data-testid="stAppViewContainer"], [data-testid="stMainBlockContainer"], section, .main, .block-container {
             height: auto !important;
             min-height: auto !important;
+            max-height: none !important;
             overflow: visible !important;
             position: static !important;
+            display: block !important;
+        }
+        
+        /* 차트 우측 잘림 방지 (강제로 1열로 떨어뜨림) */
+        [data-testid="stHorizontalBlock"] {
+            display: block !important;
+        }
+        [data-testid="column"] {
+            width: 100% !important;
+            max-width: 100% !important;
+            display: block !important;
+            float: none !important;
+            margin-bottom: 20px !important;
         }
         
         .main .block-container { 
@@ -49,8 +64,8 @@ st.markdown("""
         }
         
         h2, h3, h4 { page-break-after: avoid; }
-        p, li { font-size: 11pt !important; line-height: 1.6; color: #111; page-break-inside: avoid; }
-        .js-plotly-plot { page-break-inside: avoid; margin-bottom: 20px; }
+        p, li { font-size: 11pt !important; line-height: 1.6; color: #111; page-break-inside: auto; }
+        .js-plotly-plot { margin-bottom: 20px; page-break-inside: avoid; }
         
         @page { margin: 1.5cm; }
     }
@@ -153,7 +168,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (농어촌 로직 및 순서 최적화)
+# 5. 분석 엔진
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -161,7 +176,7 @@ if excel_file and pdf_file and target_major:
             i_df, m_df = process_performance_data(excel_file.getvalue())
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
-            
+             
             rural_inst = "이 학생은 [농어촌 전형] 대상자임." if is_rural else ""
             
             prompt = f"""
@@ -182,11 +197,12 @@ if excel_file and pdf_file and target_major:
             - 전공 관련 세특 누락/부실 지적 필수 (반드시 개괄식)
 
             [PART 2] 대입 전략, 농어촌 전략, 생기부 보완, 추천 도서
+            - **[전형 추천 유불리 엄격 판단]**: 내신 성적(정량)과 생기부 방사형 역량 점수(정성)를 철저히 비교할 것. 생기부 점수가 상대적으로 낮거나 부실하다면 절대 '종합전형'을 무리하게 추천하지 말고, 객관적인 '교과전형'의 추천 비율(X)을 압도적으로 높게 배정할 것.
             - 전형별 액션 플랜 (개괄식): 교과전형, 종합전형 등의 제목에서 '(농어촌)' 표기를 삭제할 것. 농어촌 관련 특이사항은 해당 전형 하위 항목에 자연스럽게 포함하여 분석할 것.
             - **[농어촌 전형 전략 (주의!)]**: 농어촌 전형은 매년 입결 컷의 변동성이 매우 큰 전형임. 절대 "무조건 유리하다"고 단정하지 말 것. 안정/적정 지원은 일반 전형으로 고려하되, 농어촌 전형은 상향 지원 시 일반 종합 전형보다 합격 가능성을 보완하는 '전략적 조커'로 활용하라는 냉정한 가이드라인을 제시할 것.
             - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시.
             - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
-
+            
             [PART 3] 심화 탐구 및 세특 예시
             - 탐구 가이드(3개): 주제: / 종적/횡적 근거: (생기부 출처 필수) / 탐구 방법:
             - NEIS 기재용 세특 예시(3개): 과목명: / 내용: (각 200자 내외)
@@ -216,7 +232,7 @@ if excel_file and pdf_file and target_major:
     p3 = re.sub(r'(?i)NEIS\s*기재용\s*세특\s*문구\s*예시\s*:', '### ✍️ NEIS 기재용 세특 문구 예시', p3)
     p3 = re.sub(r'(?i)과목명\s*:', '📘 **과목명:**', p3)
     p3 = re.sub(r'(?i)내용\s*:', '📝 **내용:**', p3)
-    
+ 
     p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4)
     p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
     p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', p4)
@@ -235,7 +251,8 @@ if excel_file and pdf_file and target_major:
         if p_match:
             try:
                 p_items = [it.split(':') for it in p_match.group(1).split(',')]
-                p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in p_items])
+                # 💡 ValueError 원천 차단 (숫자 추출 실패 시 0 반환)
+                p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v) or 0)} for k, v in p_items])
                 c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율"), use_container_width=True, key=f"p_{suffix}")
             except: c3.warning("전형 차트 데이터 형식 오류")
         
@@ -243,7 +260,9 @@ if excel_file and pdf_file and target_major:
         if r_match:
             try:
                 r_items = [it.split(':') for it in r_match.group(1).split(',')]
-                r_labels = [k.strip() for k, v in r_items]; r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
+                r_labels = [k.strip() for k, v in r_items]
+                # 💡 ValueError 원천 차단 (숫자 추출 실패 시 0 반환)
+                r_values = [int(re.sub(r'[^0-9]', '', v) or 0) for k, v in r_items]
                 fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
                 fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단")
                 c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
