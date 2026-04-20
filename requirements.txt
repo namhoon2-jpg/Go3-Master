@@ -4,3 +4,4 @@ plotly
 pdfplumber
 requests
 google-generativeai
+openpyxl
