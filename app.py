@@ -25,21 +25,39 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (CSS)
+# 2. 화면 및 인쇄 스타일 (다중 페이지 인쇄 완벽 대응)
 # ==========================================
 st.markdown("""
     <style>
     .stApp { background-color: #ffffff; }
+    
     @media print {
+        /* 불필요한 UI 숨기기 */
         [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, .stTabs [role="tablist"] {
             display: none !important;
         }
-        .main .block-container { max-width: 100% !important; padding: 0 !important; }
-        h2 { border-bottom: 2px solid black; padding-bottom: 5px; }
-        h3 { margin-top: 20px; border-left: 5px solid #2e6bc6; padding-left: 10px; }
-        p, li { font-size: 11pt !important; line-height: 1.6; color: #111; }
+        
+        /* 1페이지 잘림 방지: 스크롤 및 고정 높이 해제 */
+        html, body, .stApp, .main, .block-container {
+            height: auto !important;
+            min-height: auto !important;
+            overflow: visible !important;
+            position: static !important;
+        }
+        
+        .main .block-container { 
+            max-width: 100% !important; 
+            padding: 0 !important; 
+        }
+        
+        /* 페이지 넘김 시 레이아웃 보호 */
+        h2, h3, h4 { page-break-after: avoid; }
+        p, li { font-size: 11pt !important; line-height: 1.6; color: #111; page-break-inside: avoid; }
+        .js-plotly-plot { page-break-inside: avoid; margin-bottom: 20px; }
+        
         @page { margin: 1.5cm; }
     }
+    
     li { margin-bottom: 8px; }
     </style>
     """, unsafe_allow_html=True)
@@ -138,7 +156,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (프롬프트 조정 반영)
+# 5. 분석 엔진 (생기부 보완 전략 추가)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -165,10 +183,11 @@ if excel_file and pdf_file and target_major:
             - 내신/모의고사 등급 분석 (수치 기반)
             - 전공 관련 세특 누락/부실 지적 필수 (반드시 개괄식)
 
-            [PART 2] 대입 전략 및 추천 도서
+            [PART 2] 대입 전략, 생기부 보완, 추천 도서
             - 전형별 액션 플랜 (개괄식)
-            - **[농어촌 전형 유불리 판단]**: 농어촌 대상자일 경우 무조건 농어촌을 추천하지 말고, 내신과 모의고사 성적을 바탕으로 일반 전형과 비교하여 어느 쪽이 더 유리할지 객관적으로 판단하여 작성할 것.
-            - 추천 도서 3권: 도서명과 함께 선정 이유를 **'1문장으로 아주 짧고 간결하게'** 작성할 것.
+            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 남은 학기 동안 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시 (필수)
+            - **[농어촌 전형 유불리 판단]**: 농어촌 대상자일 경우 무조건 추천하지 말고, 내신과 모의고사 성적을 바탕으로 일반 전형과 객관적으로 유불리 비교 판단.
+            - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
 
             [PART 3] 심화 탐구 및 세특 예시
             - 탐구 가이드(3개): 주제: / 종적/횡적 근거: (생기부 출처 필수) / 탐구 방법:
@@ -188,6 +207,10 @@ if excel_file and pdf_file and target_major:
     p2 = extract_section(clean_res, "PART 2", "PART 3")
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
+
+    # 가시성 강화 변환 (아이콘 추가)
+    p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '🛠️ **생기부 보완 전략**', p2)
+    p2 = re.sub(r'(?i)농어촌\s*전형\s*유불리\s*판단', '⚖️ **농어촌 전형 유불리 판단**', p2)
 
     p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3)
     p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', p3)
@@ -236,7 +259,7 @@ if excel_file and pdf_file and target_major:
         render_all_charts("tab1")
         st.divider()
         st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}")
-        st.markdown(f"### 🎯 [PART 2] 대입 전략 및 추천 도서\n\n{p2}")
+        st.markdown(f"### 🎯 [PART 2] 대입 전략 및 생기부 보완\n\n{p2}")
 
     with tab2:
         st.markdown(f"### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}")
@@ -256,14 +279,14 @@ if excel_file and pdf_file and target_major:
     with tab4:
         st.markdown("""
         <div class="no-print" style="padding: 15px; background-color: #f1f8ff; border-radius: 8px; border-left: 5px solid #1a73e8; margin-bottom: 20px;">
-            <h4 style="margin-top: 0; color: #1a73e8;">🖨️ 리포트 인쇄 방법</h4>
-            <p style="margin-bottom: 5px; font-size: 15px; color: #333;"><b>1.</b> 키보드에서 <b>Ctrl + P</b> (Mac은 <b>Cmd + P</b>)를 누르세요.</p>
+            <h4 style="margin-top: 0; color: #1a73e8;">🖨️ 리포트 다중 페이지 인쇄 방법</h4>
+            <p style="margin-bottom: 5px; font-size: 15px; color: #333;"><b>1.</b> 키보드에서 <b>Ctrl + P</b> (Mac은 Cmd + P)를 누르세요.</p>
             <p style="margin-bottom: 0; font-size: 15px; color: #333;"><b>2.</b> 인쇄 설정(더보기)에서 <b>'배경 그래픽(Background graphics)'</b>을 반드시 체크해야 차트가 인쇄됩니다.</p>
         </div>
         """, unsafe_allow_html=True)
         st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
         render_all_charts("tab4")
         st.divider()
-        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}\n\n### 🎯 [PART 2] 대입 전략\n\n{p2}\n\n### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}\n\n### 🎤 [PART 4] 면접 질문\n\n{p4}")
+        st.markdown(f"### 📝 [PART 1] 종합 진단\n\n{p1}\n\n### 🎯 [PART 2] 대입 전략 및 생기부 보완\n\n{p2}\n\n### 🚀 [PART 3] 심화 탐구 및 세특 문구\n\n{p3}\n\n### 🎤 [PART 4] 면접 질문\n\n{p4}")
 else:
     st.info("👈 왼쪽 사이드바에 정보를 입력하고 파일을 업로드해 주세요.")
