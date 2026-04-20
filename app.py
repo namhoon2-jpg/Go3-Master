@@ -125,7 +125,7 @@ def extract_section(text, start_keyword, end_keyword=None):
     return content
 
 # ==========================================
-# ★ HTML 다운로드 생성기 (컬러 인쇄 강제 적용!)
+# ★ HTML 다운로드 생성기 (컬러 강제 보존 CSS 추가!)
 # ==========================================
 def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
     fig_i_html, fig_m_html, fig_p_html, fig_r_html = "", "", "", ""
@@ -152,7 +152,6 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
             r_values = [int(re.sub(r'[^0-9]', '', v)) for k, v in r_items]
             fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
             fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단")
-            # 💡 바로 이 부분 끝에 누락되었던 괄호 ')' 를 추가했습니다!
             fig_r_html = fig_r.to_html(full_html=False, include_plotlyjs=False)
         except: pass
 
@@ -175,11 +174,11 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
             .charts {{ display: flex; flex-wrap: wrap; justify-content: space-between; page-break-inside: avoid; margin-bottom: 40px; }}
             .chart {{ width: 48%; margin-bottom: 20px; }}
             
-            /* 💡 브라우저가 그래프 색상을 빼는 것을 강제로 막는 코드 추가 */
+            /* 💡 SVG 그래픽(Plotly) 컬러 인쇄 강제 보존 코드 */
             @media print {{ 
                 body {{ padding: 0; }} 
                 .chart {{ page-break-inside: avoid; }} 
-                * {{
+                *, svg, path, rect, g, text, circle, line {{
                     -webkit-print-color-adjust: exact !important;
                     print-color-adjust: exact !important;
                     color-adjust: exact !important;
