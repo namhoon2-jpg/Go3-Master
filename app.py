@@ -23,26 +23,19 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. [초정밀] 인쇄 및 레이아웃 CSS
+# 2. 인쇄 잘림 방지 '철벽 해제' CSS
 # ==========================================
 st.markdown("""
     <style>
-    /* 기본 화면 스타일 */
     .stApp { background-color: #ffffff; }
     
     @media print {
-        /* 1. 스트림릿 UI 요소 제거 */
-        [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, [data-baseweb="tab-list"], .stActionButton {
-            display: none !important;
-        }
-
-        /* 2. [핵심] 모든 부모 컨테이너의 높이 및 스크롤 제한 해제 */
-        html, body, #root, .stApp, 
+        /* 1. 스트림릿의 모든 스크롤 및 높이 제한 강제 해제 (다중 페이지 인쇄의 핵심) */
+        html, body, .stApp, 
         [data-testid="stAppViewContainer"], 
         [data-testid="stMainBlockContainer"],
         [data-testid="stVerticalBlock"],
-        [data-testid="stVerticalBlockBorderWrapper"],
-        .main {
+        .main, .block-container {
             display: block !important;
             height: auto !important;
             min-height: auto !important;
@@ -50,43 +43,44 @@ st.markdown("""
             overflow: visible !important;
             position: static !important;
         }
-        
+
+        /* 2. 불필요한 UI 완벽 제거 */
+        [data-testid="stSidebar"], header, footer, .stChatInput, .no-print, [data-baseweb="tab-list"], .stActionButton {
+            display: none !important;
+        }
+
+        /* 3. 인쇄 시 여백 및 폭 최적화 */
         .block-container {
             max-width: 100% !important;
             padding: 0 !important;
             margin: 0 !important;
-            overflow: visible !important;
         }
 
-        /* 3. [그래프 보호] Plotly 내부 overflow는 건드리지 않음 (증발 방지) */
-        .js-plotly-plot .plotly .main-svg {
-            overflow: visible !important;
-        }
-
-        /* 4. 레이아웃 1단 정렬 */
+        /* 4. 그래프 우측 잘림 방지 (세로 한 줄 정렬) */
         [data-testid="stHorizontalBlock"] {
             display: block !important;
         }
         [data-testid="column"] {
             width: 100% !important;
             max-width: 100% !important;
-            margin-bottom: 50px !important;
+            margin-bottom: 40px !important;
             page-break-inside: avoid !important;
         }
 
-        /* 5. 텍스트 가독성 */
-        h2 { text-align: center; border-bottom: 3px solid black; padding-bottom: 10px; }
+        /* 5. 텍스트 가독성 및 페이지 넘김 설정 */
+        h2 { text-align: center; border-bottom: 3px solid black; padding-bottom: 10px; margin-bottom: 30px; }
         h3 { border-left: 10px solid #1a73e8; padding-left: 15px; margin-top: 40px; page-break-after: avoid; }
-        p, li { font-size: 12pt !important; line-height: 1.8; color: #000; }
-        
-        @page { size: A4; margin: 2cm 1.5cm; }
+        p, li { font-size: 12pt !important; line-height: 1.8; color: #000; page-break-inside: auto; }
+        .stPlotlyChart { page-break-inside: avoid !important; width: 100% !important; }
+
+        @page { size: auto; margin: 2cm 1.5cm; }
     }
     li { margin-bottom: 10px; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수
+# 3. 데이터 가공 함수들
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -141,7 +135,9 @@ def extract_section(text, start_keyword, end_keyword=None):
     if end_keyword: pattern = rf"\[{start_keyword}\].*?(?=\[{end_keyword}\]|$)"
     else: pattern = rf"\[{start_keyword}\].*"
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
-    return re.sub(rf"^.*?\[{start_keyword}\].*?(?=\n|$)", "", match.group(0).strip(), flags=re.IGNORECASE).strip() if match else ""
+    if not match: return ""
+    content = match.group(0).strip()
+    return re.sub(rf"^.*?\[{start_keyword}\].*?(?=\n|$)", "", content, flags=re.IGNORECASE).strip()
 
 # ==========================================
 # 4. 메인 UI
@@ -156,33 +152,48 @@ with st.sidebar:
     pdf_file = st.file_uploader("2. 생기부 PDF", type="pdf")
     is_rural = st.checkbox("🌾 농어촌 전형 대상자 여부", value=False)
     st.divider()
+    ref_file = st.file_uploader("지식 DB 업로드", type=["pdf", "xlsx"])
     if st.button("💾 데이터 저장"):
-        st.success("데이터가 반영되었습니다.")
+        if ref_file:
+            with st.spinner("저장 중..."):
+                txt = f"\n[자료: {ref_file.name}]\n"
+                if ref_file.name.endswith(".pdf"):
+                    with pdfplumber.open(ref_file) as p: txt += "".join([pg.extract_text() for pg in p.pages])
+                else:
+                    xls_ref = pd.ExcelFile(ref_file)
+                    for s in xls_ref.sheet_names: txt += f"\n- {s} -\n{pd.read_excel(xls_ref, s).to_string()}\n"
+                sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 로직 (태그 생성 강화)
+# 5. 분석 엔진 (심층 분석 품질 복구)
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
-        with st.spinner('🚀 입시 전문가 AI가 분석 중입니다...'):
+        with st.spinner('🚀 입시 전문가 AI가 정밀 분석 중입니다...'):
             i_df, m_df = process_performance_data(excel_file.getvalue())
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
             prompt = f"""
-            입시 컨설턴트로서 {target_major} 지망 학생 분석. 농어촌: {is_rural}
-            데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:10000]}), 지식({k_base[:5000]})
+            입시 컨설턴트로서 {target_major} 지망 학생을 분석하세요. 농어촌: {is_rural}
+            데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:12000]}), 지식({k_base[:5000]})
             
-            [규칙] 모든 내용은 개괄식 음슴체 사용. 생기부 역량 점수(@RADAR)가 낮으면 교과전형 위주 추천.
-            답변 마지막에 반드시 아래 형식의 태그를 포함할 것.
-            @PIE [교과: 70, 종합: 20, 정시: 10] @
-            @RADAR [전공적합성: 80, 학업역량: 75, 진로탐색: 85, 리더십/인성: 70, 발전가능성: 80] @
+            [분석 원칙]
+            1. 모든 내용은 개괄식 음슴체 사용.
+            2. 내신/모의고사 수치는 '등급'임. 하락 시 '등급' 단위로 분석할 것.
+            3. 생기부 종합 점수(@RADAR)가 낮으면(70점 이하) 반드시 교과 전형을 압도적으로 우선 추천할 것.
+            4. 답변 마지막에 @PIE [...] @ 및 @RADAR [...] @ 태그 필수 생성.
 
-            [분석 항목]
-            [PART 1] 종합 진단: 등급 분석 및 세특 부실 지적.
-            [PART 2] 대입 전략: 전형별 전략, 농어촌 전략(로또성 경고), 생기부 보완책, 추천 도서.
-            [PART 3] 심화 탐구 및 세특 예시: 주제/근거(학년-학기-활동명 명시)/방법 3개 및 NEIS용 세특 문구 3개.
-            [PART 4] 면접 예상 질문: 질문/답안/준비 3개.
+            [작성 항목]
+            [PART 1] 종합 진단: 전 과목 등급 추이 심층 분석 및 희망 학과 관련 핵심 과목 세특 부실 여부 날카롭게 지적.
+            [PART 2] 대입 전략: 
+                     - 농어촌 대상자일 경우: 입결 변동성을 강력 경고하며 '안정/적정은 일반 전형, 상향은 농어촌 전형' 전략 제시.
+                     - 생기부 보완 전략: 현재 기록의 약점을 짚고 남은 기간 보완할 구체적 활동 제언.
+                     - 추천 도서 3권: 도서명과 선정 이유(1문장).
+            [PART 3] 심화 탐구 및 세특 예시: 
+                     - 주제/근거/방법 3세트: '종적/횡적 근거'는 반드시 생기부에서 'X학년 X학기 OO활동' 등 구체적 출처를 인용할 것.
+                     - NEIS 기재용 세특 문구 예시 3개 (전문가 수준 문장, 각 200자).
+            [PART 4] 면접 예상 질문: 질문/답안/준비 가이드 3개.
             """
             response = model.generate_content(prompt)
             st.session_state.analysis_result = response.text
@@ -196,12 +207,13 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
-    # 가독성 변환
+    # 가시성 강화
+    p2 = re.sub(r'(?i)농어촌\s*전형\s*전략', '⚖️ **농어촌 전형 전략**', p2)
+    p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '🛠️ **생기부 보완 전략**', p2)
     p3 = re.sub(r'(?i)주제\s*:', '#### 📍 주제:', p3)
     p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '🔍 **종적/횡적 근거:**', p3)
     p3 = re.sub(r'(?i)탐구\s*방법\s*:', '🛠️ **탐구 방법:**', p3)
-    p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4)
-    p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
+    p3 = re.sub(r'(?i)NEIS\s*기재용\s*세특\s*문구\s*예시\s*:', '### ✍️ NEIS 기재용 세특 문구 예시', p3)
 
     def render_all_charts(suffix):
         c1, c2 = st.columns(2); c3, c4 = st.columns(2)
@@ -213,19 +225,23 @@ if excel_file and pdf_file and target_major:
         
         p_m = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if p_m:
-            items = [it.split(':') for it in p_m.group(1).split(',')]
-            p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in items])
-            c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True, key=f"p_{suffix}")
+            try:
+                items = [it.split(':') for it in p_m.group(1).split(',')]
+                p_df = pd.DataFrame([{"전형": k.strip(), "비중": int(re.sub(r'[^0-9]', '', v))} for k, v in items])
+                c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형"), use_container_width=True, key=f"p_{suffix}")
+            except: pass
         
         r_m = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if r_m:
-            items = [it.split(':') for it in r_m.group(1).split(',')]
-            lbls = [k.strip() for k, v in items]; vls = [int(re.sub(r'[^0-9]', '', v)) for k, v in items]
-            fig_r = go.Figure(data=go.Scatterpolar(r=vls + [vls[0]], theta=lbls + [lbls[0]], fill='toself'))
-            fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량")
-            c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
+            try:
+                items = [it.split(':') for it in r_m.group(1).split(',')]
+                lbls = [k.strip() for k, v in items]; vls = [int(re.sub(r'[^0-9]', '', v)) for k, v in items]
+                fig_r = go.Figure(data=go.Scatterpolar(r=vls + [vls[0]], theta=lbls + [lbls[0]], fill='toself'))
+                fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량")
+                c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
+            except: pass
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 진단/전략", "💡 가이드", "💬 상담", "🖨️ 인쇄"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 진단/전략", "💡 가이드", "💬 상담", "🖨️ 인쇄 리포트"])
 
     with tab1:
         render_all_charts("tab1")
@@ -245,4 +261,4 @@ if excel_file and pdf_file and target_major:
         st.markdown(f"## 🎓 대입 컨설팅 종합 리포트 ({target_major})")
         render_all_charts("print")
         st.divider()
-        st.markdown(f"### 📝 종합 진단\n{p1}\n### 🎯 대입 전략\n{p2}\n### 🚀 심화 탐구\n{p3}\n### 🎤 면접 질문\n{p4}")
+        st.markdown(f"### 📝 종합 진단\n{p1}\n### 🎯 대입 전략\n{p2}\n### 🚀 심화 탐구 가이드\n{p3}\n### 🎤 면접 질문\n{p4}")
