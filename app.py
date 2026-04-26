@@ -58,7 +58,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수들
+# 3. 데이터 가공 함수들 (💡 이 부분만 모의고사 오류 수정을 위해 안전하게 교체되었습니다)
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -72,11 +72,20 @@ def process_performance_data(file_bytes):
     xls = pd.ExcelFile(io.BytesIO(file_bytes))
     i_df, m_df = pd.DataFrame(), pd.DataFrame()
     
+    # 💡 수정 1: 백분위/표준점수를 등급으로 착각하지 않도록 검증 강화
     def safe_grade(val):
         try:
             if pd.isna(val): return None
-            m = re.search(r'([1-9])', str(val).strip())
-            return float(m.group(1)) if m else None
+            v_str = str(val).strip()
+            # 정확히 1~9 사이의 단일 숫자인지 확인 (예: 3, 3.0, 3등급)
+            m = re.fullmatch(r'([1-9])(?:\.0)?\s*(?:등급)?', v_str)
+            if m: return float(m.group(1))
+            
+            # 숫자가 섞여 있다면 두 자리(백분위/표점) 제외하고 1자리 숫자만 취급
+            nums = re.findall(r'\d+', v_str)
+            if len(nums) == 1 and len(nums[0]) == 1 and 1 <= int(nums[0]) <= 9:
+                return float(nums[0])
+            return None
         except: return None
 
     if '학생부현황' in xls.sheet_names:
@@ -88,29 +97,60 @@ def process_performance_data(file_bytes):
                 u_s, w_s = 0, 0
                 for _, row in sub.iterrows():
                     try:
-                        u, r = float(row.iloc[u_c]), str(row.iloc[r_c]).strip()
-                        m = re.search(r'^[1-9]', r)
-                        if m: u_s += u; w_s += (u * float(m.group()))
+                        u = float(row.iloc[u_c])
+                        r_val = safe_grade(row.iloc[r_c])
+                        if r_val is not None:
+                            u_s += u; w_s += (u * r_val)
                     except: continue
                 if u_s > 0: res.append({"학기": f"{int(g)}-{s_idx}", "등급": round(w_s/u_s, 2)})
         i_df = pd.DataFrame(res)
         
     if '수능모의고사' in xls.sheet_names:
-        df_m = pd.read_excel(xls, sheet_name='수능모의고사')
+        # 💡 수정 2: 하드코딩된 열(Column) 인덱스 폐기 -> '등급' 열을 동적으로 자동 탐색
+        df_m_raw = pd.read_excel(xls, sheet_name='수능모의고사', header=None)
         m_res = []
-        for _, row in df_m.iterrows():
+        
+        grade_cols = []
+        # 위에서부터 5번째 행 이내에 있는 '등급' 글자들의 실제 열 위치를 파악
+        for i in range(min(5, len(df_m_raw))):
+            for j, val in enumerate(df_m_raw.iloc[i]):
+                if str(val).strip() == '등급' and j not in grade_cols:
+                    grade_cols.append(j)
+        grade_cols.sort()
+        
+        for _, row in df_m_raw.iterrows():
             try:
                 txt = str(row.iloc[0])
-                g_m = re.search(r'(\d)학년', txt); d_m = re.search(r'\((\d{2})-(\d{2})\)', txt)
+                g_m = re.search(r'(\d)학년', txt)
+                d_m = re.search(r'\((\d{2})-(\d{2})\)', txt)
+                
                 if g_m and d_m:
-                    m_res.append({
-                        "key": int(f"{d_m.group(1)}{d_m.group(2)}"), 
-                        "시험": f"{g_m.group(1)}학년 {d_m.group(2)}월", 
-                        "국어": safe_grade(row.iloc[4]), "수학": safe_grade(row.iloc[8]), 
-                        "영어": safe_grade(row.iloc[10]), "한국사": safe_grade(row.iloc[12]), 
-                        "탐구1": safe_grade(row.iloc[13]) or safe_grade(row.iloc[16]), 
-                        "탐구2": safe_grade(row.iloc[14]) or safe_grade(row.iloc[21])
-                    })
+                    # 동적으로 찾은 등급 열 순서대로 매핑 (보통 국, 수, 영, 한, 탐1, 탐2 순서 보장)
+                    if len(grade_cols) >= 6:
+                        국어 = safe_grade(row.iloc[grade_cols[0]])
+                        수학 = safe_grade(row.iloc[grade_cols[1]])
+                        영어 = safe_grade(row.iloc[grade_cols[2]])
+                        한국사 = safe_grade(row.iloc[grade_cols[3]])
+                        탐구1 = safe_grade(row.iloc[grade_cols[4]])
+                        탐구2 = safe_grade(row.iloc[grade_cols[5]])
+                    else:
+                        # 안전 장치: 만약 동적 탐색을 실패했을 경우 대비 (safe_grade가 표점을 걸러줌)
+                        국어 = safe_grade(row.iloc[4] if len(row) > 4 else None)
+                        수학 = safe_grade(row.iloc[8] if len(row) > 8 else None)
+                        영어 = safe_grade(row.iloc[10] if len(row) > 10 else None)
+                        한국사 = safe_grade(row.iloc[12] if len(row) > 12 else None)
+                        탐구1 = safe_grade(row.iloc[13] if len(row) > 13 else None) or safe_grade(row.iloc[16] if len(row) > 16 else None)
+                        탐구2 = safe_grade(row.iloc[14] if len(row) > 14 else None) or safe_grade(row.iloc[21] if len(row) > 21 else None)
+
+                    # 유효한 등급이 하나라도 존재할 경우에만 그래프 데이터로 등록
+                    if any(x is not None for x in [국어, 수학, 영어, 한국사, 탐구1, 탐구2]):
+                        m_res.append({
+                            "key": int(f"{d_m.group(1)}{d_m.group(2)}"), 
+                            "시험": f"{g_m.group(1)}학년 {d_m.group(2)}월", 
+                            "국어": 국어, "수학": 수학, 
+                            "영어": 영어, "한국사": 한국사, 
+                            "탐구1": 탐구1, "탐구2": 탐구2
+                        })
             except: continue
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
@@ -248,7 +288,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진 (💡 프롬프트 및 가독성 로직 정밀 수정)
+# 5. 분석 엔진
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
