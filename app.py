@@ -188,9 +188,9 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
             fig_r_html = fig_r.to_html(full_html=False, include_plotlyjs=False)
         except: pass
 
+    # 💡 마크다운(Markdown)의 **굵은 글씨**를 HTML 인쇄에서도 완벽하게 살리도록 수정
     def md_to_html(text):
-        t = text.replace('**', '')
-        t = re.sub(r'#### (.*)', r'<strong>\1</strong>', t)
+        t = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
         t = re.sub(r'### (.*)', r'<h3>\1</h3>', t)
         return t.replace('\n', '<br>')
 
@@ -288,7 +288,6 @@ if excel_file and pdf_file and target_major:
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
-            # 💡 V44 핵심: 수상경력 절대 금지 추가 및 농어촌 조건부 맞춤 지시 강화
             rural_status = "이 학생은 [농어촌 전형] 대상자임." if is_rural else "이 학생은 일반 전형 대상자임. 농어촌 전형과 관련된 멘트는 절대 언급하지 말 것."
             rural_rule = "3. **농어촌 전형 맞춤 판단**: 제공된 내신(i_df) 데이터를 확인하여 학생의 등급이 평균 5등급 이하일 때만 합격의 한계를 경고(팩트폭력)하고, 4등급 이상의 우수한 학생에게는 5등급 이하용 경고 멘트를 절대 쓰지 말고 강점을 살린 상향 지원 전략을 세울 것." if is_rural else ""
             rural_guide = "- **[농어촌 전형 전략]**: 학생의 실제 내신 등급을 파악하여 그에 맞는 맞춤 전략 제시 (우수 학생에게 불필요한 한계점 지적 금지)." if is_rural else ""
@@ -301,7 +300,7 @@ if excel_file and pdf_file and target_major:
             [절대 규칙: 가독성 및 형식]
             1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식 작성.
             2. 인사말 금지. [PART 1]부터 즉시 시작. 철저한 음슴체(~함, ~임) 사용.
-            3. **[대입 미반영 항목 절대 언급 금지 (매우 중요)]**: '수상 경력', '수상 실적', '자율동아리', '영재학급' 등은 현재 대입에 미반영되므로 장단점 분석, 진단, 보완 전략 등 **모든 파트에서 단 한 글자도 절대 언급하지 마세요.** (예: "수상 실적이 없어 아쉬움" 같은 멘트는 오류입니다.)
+            3. **[대입 미반영 항목 절대 언급 금지 (매우 중요)]**: '수상 경력', '수상 실적', '자율동아리', '영재학급' 등은 현재 대입에 미반영되므로 장단점 분석, 진단, 보완 전략 등 **모든 파트에서 단 한 글자도 절대 언급하지 마세요.**
             4. 마지막 두 줄은 반드시 아래 태그여야 함. 반드시 본인 분석 결과와 일치하도록 숫자를 계산할 것.
                @PIE [교과: X, 종합: Y, 정시: Z] @ (합계 100)
                @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100)
@@ -350,18 +349,18 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
-    # 가시성 강화 및 줄바꿈 해결
-    p2 = re.sub(r'(?i)농어촌\s*전형\s*전략|농어촌\s*전형\s*유불리\s*판단', '⚖️ **농어촌 전형 전략**', p2)
-    p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '🛠️ **생기부 보완 전략**', p2)
+    # 💡 핵심 수정: 줄바꿈 강제 삽입(\n\n) 및 대제목(####)을 굵은 글씨(**)로 변환하여 폰트 크기 및 단락 뭉침 현상 완벽 해결
+    p2 = re.sub(r'(?i)농어촌\s*전형\s*전략|농어촌\s*전형\s*유불리\s*판단', '\n\n⚖️ **농어촌 전형 전략**', p2)
+    p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '\n\n🛠️ **생기부 보완 전략**', p2)
 
-    p3 = re.sub(r'(?i)주제\s*:', '\n\n#### 📍 주제:', p3)
-    p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '\n🔍 **종적/횡적 근거:**', p3)
-    p3 = re.sub(r'(?i)탐구\s*방법\s*:', '\n🛠️ **탐구 방법:**', p3)
-    p3 = re.sub(r'(?i)세특\s*예시\s*:', '\n✍️ **세특 예시:**', p3)
+    p3 = re.sub(r'(?i)주제\s*:', '\n\n📍 **주제:** ', p3)
+    p3 = re.sub(r'(?i)종적/횡적\s*근거\s*:', '\n\n🔍 **종적/횡적 근거:** ', p3)
+    p3 = re.sub(r'(?i)탐구\s*방법\s*:', '\n\n🛠️ **탐구 방법:** ', p3)
+    p3 = re.sub(r'(?i)세특\s*예시\s*:', '\n\n✍️ **세특 예시:** ', p3)
     
-    p4 = re.sub(r'(?i)질문\s*:', '\n#### ❓ 질문:', p4)
-    p4 = re.sub(r'(?i)모범\s*답안\s*:', '\n✅ **모범 답안:**\n', p4)
-    p4 = re.sub(r'(?i)준비\s*방법\s*:', '\n🛠️ **준비 방법:**\n', p4)
+    p4 = re.sub(r'(?i)질문\s*:', '\n\n❓ **질문:** ', p4)
+    p4 = re.sub(r'(?i)모범\s*답안\s*:', '\n\n✅ **모범 답안:** ', p4)
+    p4 = re.sub(r'(?i)준비\s*방법\s*:', '\n\n🛠️ **준비 방법:** ', p4)
 
     # --- 차트 렌더링 함수 ---
     def render_all_charts(suffix):
