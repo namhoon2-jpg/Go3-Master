@@ -58,7 +58,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수들 (💡 모의고사 열 순서 완벽 교정)
+# 3. 데이터 가공 함수들 
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -120,7 +120,6 @@ def process_performance_data(file_bytes):
                 
                 if g_m and d_m:
                     if len(grade_cols) >= 6:
-                        # 💡 핵심 수정: 실제 나이스 엑셀 순서(한국사 -> 국어 -> 수학 -> 영어 -> 탐구1 -> 탐구2)에 맞게 매핑
                         한국사 = safe_grade(row.iloc[grade_cols[0]])
                         국어 = safe_grade(row.iloc[grade_cols[1]])
                         수학 = safe_grade(row.iloc[grade_cols[2]])
@@ -128,7 +127,6 @@ def process_performance_data(file_bytes):
                         탐구1 = safe_grade(row.iloc[grade_cols[4]])
                         탐구2 = safe_grade(row.iloc[grade_cols[5]])
                     else:
-                        # 혹시 모를 안전장치(Fallback)도 엑셀 열 번호에 맞게 교정
                         한국사 = safe_grade(row.iloc[1] if len(row) > 1 else None)
                         국어 = safe_grade(row.iloc[5] if len(row) > 5 else None)
                         수학 = safe_grade(row.iloc[9] if len(row) > 9 else None)
@@ -148,13 +146,19 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
+# 💡 수정: AI가 PART 2, PART2, PART_2 등 띄어쓰기를 지멋대로 해도 완벽하게 추출하는 초강력 정규식 
 def extract_section(text, start_keyword, end_keyword=None):
-    if end_keyword: pattern = rf"{start_keyword}.*?(?=[^a-zA-Z0-9가-힣]*{end_keyword}|$)"
-    else: pattern = rf"{start_keyword}.*"
+    start_pattern = start_keyword.replace(" ", r"\s*")
+    if end_keyword: 
+        end_pattern = end_keyword.replace(" ", r"\s*")
+        pattern = rf"{start_pattern}.*?(?=[^a-zA-Z0-9가-힣]*{end_pattern}|$)"
+    else: 
+        pattern = rf"{start_pattern}.*"
+        
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if not match: return ""
     content = match.group(0).strip()
-    content = re.sub(rf"^.*?{start_keyword}.*?(?=\n|$)", "", content, flags=re.IGNORECASE).strip()
+    content = re.sub(rf"^.*?{start_pattern}.*?(?=\n|$)", "", content, flags=re.IGNORECASE).strip()
     return content
 
 # ==========================================
