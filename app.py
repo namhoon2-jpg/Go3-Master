@@ -25,7 +25,7 @@ if "analysis_result" not in st.session_state: st.session_state.analysis_result =
 if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
 # ==========================================
-# 2. 화면 및 인쇄 스타일 (V74 원본 유지)
+# 2. 화면 및 인쇄 스타일
 # ==========================================
 st.markdown("""
     <style>
@@ -58,7 +58,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수들 
+# 3. 데이터 가공 함수들 (💡 모의고사 열 절대좌표 하드코딩 및 날짜 인식 강화)
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -76,11 +76,12 @@ def process_performance_data(file_bytes):
         try:
             if pd.isna(val): return None
             v_str = str(val).strip()
-            m = re.fullmatch(r'([1-9])(?:\.0)?\s*(?:등급)?', v_str)
-            if m: return float(m.group(1))
+            # 1~9 사이의 숫자가 있으면 무조건 1자리 숫자만 등급으로 추출 (백분위/표점 차단)
             nums = re.findall(r'\d+', v_str)
-            if len(nums) == 1 and len(nums[0]) == 1 and 1 <= int(nums[0]) <= 9:
-                return float(nums[0])
+            if nums:
+                for n in nums:
+                    if 1 <= int(n) <= 9:
+                        return float(n)
             return None
         except: return None
 
@@ -101,43 +102,43 @@ def process_performance_data(file_bytes):
                 if u_s > 0: res.append({"학기": f"{int(g)}-{s_idx}", "등급": round(w_s/u_s, 2)})
         i_df = pd.DataFrame(res)
         
-    if '수능모의고사' in xls.sheet_names:
-        df_m_raw = pd.read_excel(xls, sheet_name='수능모의고사', header=None)
+    # 시트명에 공백이 섞여있어도 완벽하게 찾아내도록 수정
+    m_sheet_name = next((s for s in xls.sheet_names if '모의고사' in s), None)
+    if m_sheet_name:
+        df_m_raw = pd.read_excel(xls, sheet_name=m_sheet_name, header=None)
         m_res = []
-        grade_cols = []
-        
-        for i in range(min(5, len(df_m_raw))):
-            for j, val in enumerate(df_m_raw.iloc[i]):
-                if str(val).strip() == '등급' and j not in grade_cols:
-                    grade_cols.append(j)
-        grade_cols.sort()
         
         for _, row in df_m_raw.iterrows():
             try:
-                txt = str(row.iloc[0])
-                g_m = re.search(r'(\d)학년', txt)
-                d_m = re.search(r'\((\d{2})-(\d{2})\)', txt)
+                txt = str(row.iloc[0]).replace(" ", "")
+                # 학년 추출 (1학년, 고1 등 모든 패턴 허용)
+                g_m = re.search(r'([1-3])학년', txt) or re.search(r'고([1-3])', txt)
                 
-                if g_m and d_m:
-                    if len(grade_cols) >= 6:
-                        한국사 = safe_grade(row.iloc[grade_cols[0]])
-                        국어 = safe_grade(row.iloc[grade_cols[1]])
-                        수학 = safe_grade(row.iloc[grade_cols[2]])
-                        영어 = safe_grade(row.iloc[grade_cols[3]])
-                        탐구1 = safe_grade(row.iloc[grade_cols[4]])
-                        탐구2 = safe_grade(row.iloc[grade_cols[5]])
-                    else:
-                        한국사 = safe_grade(row.iloc[1] if len(row) > 1 else None)
-                        국어 = safe_grade(row.iloc[5] if len(row) > 5 else None)
-                        수학 = safe_grade(row.iloc[9] if len(row) > 9 else None)
-                        영어 = safe_grade(row.iloc[10] if len(row) > 10 else None)
-                        탐구1 = safe_grade(row.iloc[14] if len(row) > 14 else None)
-                        탐구2 = safe_grade(row.iloc[18] if len(row) > 18 else None)
+                # 연도와 월 추출 ((26-03) 이나 2026년03월 등 모든 패턴 허용)
+                y, m = None, None
+                d_m1 = re.search(r'\((\d{2})-(\d{2})\)', txt)
+                if d_m1:
+                    y, m = d_m1.group(1), d_m1.group(2)
+                else:
+                    d_m2 = re.search(r'(\d{2,4})년.*?(\d{1,2})월', txt)
+                    if d_m2:
+                        y = d_m2.group(1)[-2:]
+                        m = d_m2.group(2).zfill(2)
+                
+                if g_m and y and m:
+                    # 💡 핵심 수정: 나이스(NEIS) 모의고사 엑셀 100% 고정 열 인덱스 매핑 (절대좌표)
+                    한국사 = safe_grade(row.iloc[1]) if len(row) > 1 else None
+                    국어 = safe_grade(row.iloc[5]) if len(row) > 5 else None
+                    수학 = safe_grade(row.iloc[9]) if len(row) > 9 else None
+                    영어 = safe_grade(row.iloc[10]) if len(row) > 10 else None
+                    탐구1 = safe_grade(row.iloc[14]) if len(row) > 14 else None
+                    탐구2 = safe_grade(row.iloc[18]) if len(row) > 18 else None
 
+                    # 유효한 등급이 하나라도 있으면 차트에 기록
                     if any(x is not None for x in [국어, 수학, 영어, 한국사, 탐구1, 탐구2]):
                         m_res.append({
-                            "key": int(f"{d_m.group(1)}{d_m.group(2)}"), 
-                            "시험": f"{g_m.group(1)}학년 {d_m.group(2)}월", 
+                            "key": int(f"{y}{m}"), 
+                            "시험": f"{g_m.group(1)}학년 {m}월", 
                             "국어": 국어, "수학": 수학, 
                             "영어": 영어, "한국사": 한국사, 
                             "탐구1": 탐구1, "탐구2": 탐구2
@@ -146,7 +147,6 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
-# 💡 수정: AI가 PART 2, PART2, PART_2 등 띄어쓰기를 지멋대로 해도 완벽하게 추출하는 초강력 정규식 
 def extract_section(text, start_keyword, end_keyword=None):
     start_pattern = start_keyword.replace(" ", r"\s*")
     if end_keyword: 
