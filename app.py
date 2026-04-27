@@ -58,7 +58,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수들 (💡 모의고사 열 절대좌표 하드코딩 및 날짜 인식 강화)
+# 3. 데이터 가공 함수들 (모의고사 V75 유지)
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -76,7 +76,6 @@ def process_performance_data(file_bytes):
         try:
             if pd.isna(val): return None
             v_str = str(val).strip()
-            # 1~9 사이의 숫자가 있으면 무조건 1자리 숫자만 등급으로 추출 (백분위/표점 차단)
             nums = re.findall(r'\d+', v_str)
             if nums:
                 for n in nums:
@@ -102,7 +101,6 @@ def process_performance_data(file_bytes):
                 if u_s > 0: res.append({"학기": f"{int(g)}-{s_idx}", "등급": round(w_s/u_s, 2)})
         i_df = pd.DataFrame(res)
         
-    # 시트명에 공백이 섞여있어도 완벽하게 찾아내도록 수정
     m_sheet_name = next((s for s in xls.sheet_names if '모의고사' in s), None)
     if m_sheet_name:
         df_m_raw = pd.read_excel(xls, sheet_name=m_sheet_name, header=None)
@@ -111,10 +109,8 @@ def process_performance_data(file_bytes):
         for _, row in df_m_raw.iterrows():
             try:
                 txt = str(row.iloc[0]).replace(" ", "")
-                # 학년 추출 (1학년, 고1 등 모든 패턴 허용)
                 g_m = re.search(r'([1-3])학년', txt) or re.search(r'고([1-3])', txt)
                 
-                # 연도와 월 추출 ((26-03) 이나 2026년03월 등 모든 패턴 허용)
                 y, m = None, None
                 d_m1 = re.search(r'\((\d{2})-(\d{2})\)', txt)
                 if d_m1:
@@ -126,7 +122,6 @@ def process_performance_data(file_bytes):
                         m = d_m2.group(2).zfill(2)
                 
                 if g_m and y and m:
-                    # 💡 핵심 수정: 나이스(NEIS) 모의고사 엑셀 100% 고정 열 인덱스 매핑 (절대좌표)
                     한국사 = safe_grade(row.iloc[1]) if len(row) > 1 else None
                     국어 = safe_grade(row.iloc[5]) if len(row) > 5 else None
                     수학 = safe_grade(row.iloc[9]) if len(row) > 9 else None
@@ -134,7 +129,6 @@ def process_performance_data(file_bytes):
                     탐구1 = safe_grade(row.iloc[14]) if len(row) > 14 else None
                     탐구2 = safe_grade(row.iloc[18]) if len(row) > 18 else None
 
-                    # 유효한 등급이 하나라도 있으면 차트에 기록
                     if any(x is not None for x in [국어, 수학, 영어, 한국사, 탐구1, 탐구2]):
                         m_res.append({
                             "key": int(f"{y}{m}"), 
@@ -147,18 +141,20 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
+# 💡 핵심 수정 1: AI가 기호를 빼먹거나 변형해도 완벽하게 파트 구간을 도려내는 초강력 추출기
 def extract_section(text, start_keyword, end_keyword=None):
-    start_pattern = start_keyword.replace(" ", r"\s*")
+    s_pat = start_keyword.replace(" ", r"\s*")
     if end_keyword: 
-        end_pattern = end_keyword.replace(" ", r"\s*")
-        pattern = rf"{start_pattern}.*?(?=[^a-zA-Z0-9가-힣]*{end_pattern}|$)"
+        e_pat = end_keyword.replace(" ", r"\s*")
+        pattern = rf"\[?{s_pat}\]?.*?\n(.*?)(?=[^a-zA-Z0-9가-힣]*{e_pat}|$)"
     else: 
-        pattern = rf"{start_pattern}.*"
+        pattern = rf"\[?{s_pat}\]?.*?\n(.*)"
         
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if not match: return ""
-    content = match.group(0).strip()
-    content = re.sub(rf"^.*?{start_pattern}.*?(?=\n|$)", "", content, flags=re.IGNORECASE).strip()
+    content = match.group(1).strip()
+    # 꼬리 부분에 남는 불필요한 마크다운 기호 제거
+    content = re.sub(r"[^a-zA-Z0-9가-힣]*$", "", content).strip()
     return content
 
 # ==========================================
@@ -173,7 +169,7 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
         fig_m = px.line(m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", labels={"value":"등급", "variable":"과목"}, template="plotly")
         fig_m.update_traces(connectgaps=True)
         fig_m_html = fig_m.to_html(full_html=False, include_plotlyjs=False)
-    p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
+    p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@?', res, re.IGNORECASE)
     if p_match:
         try:
             p_items = [it.split(':') for it in p_match.group(1).split(',')]
@@ -182,7 +178,7 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
             fig_p = px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율", template="plotly")
             fig_p_html = fig_p.to_html(full_html=False, include_plotlyjs=False)
         except: pass
-    r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
+    r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@?', res, re.IGNORECASE)
     if r_match:
         try:
             r_items = [it.split(':') for it in r_match.group(1).split(',')]
@@ -340,7 +336,13 @@ if excel_file and pdf_file and target_major:
 
     # --- 데이터 후처리 ---
     res = st.session_state.analysis_result
-    clean_res = re.sub(r'@.*?@', '', res, flags=re.DOTALL).strip()
+    
+    # 💡 핵심 수정 2: 정규식의 폭식을 막고 오직 차트 데이터 태그만 정확하게 소거
+    clean_res = res
+    clean_res = re.sub(r'@PIE.*?\]\s*@?', '', clean_res, flags=re.IGNORECASE)
+    clean_res = re.sub(r'@RADAR.*?\]\s*@?', '', clean_res, flags=re.IGNORECASE)
+    clean_res = clean_res.strip()
+
     p1 = extract_section(clean_res, "PART 1", "PART 2")
     p2 = extract_section(clean_res, "PART 2", "PART 3")
     p3 = extract_section(clean_res, "PART 3", "PART 4")
@@ -368,7 +370,7 @@ if excel_file and pdf_file and target_major:
             fig_m = px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", labels={"value":"등급", "variable":"과목"})
             fig_m.update_traces(connectgaps=True)
             c2.plotly_chart(fig_m, use_container_width=True, key=f"m_{suffix}")
-        p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
+        p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@?', res, re.IGNORECASE)
         if p_match:
             try:
                 p_items = [it.split(':') for it in p_match.group(1).split(',')]
@@ -376,7 +378,7 @@ if excel_file and pdf_file and target_major:
                 p_df = pd.DataFrame([{"전형": it[0].strip(), "비중": int(re.sub(r'[^0-9]', '', it[1]) or 0)} for it in p_items])
                 c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율"), use_container_width=True, key=f"p_{suffix}")
             except: pass
-        r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
+        r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@?', res, re.IGNORECASE)
         if r_match:
             try:
                 r_items = [it.split(':') for it in r_match.group(1).split(',')]
