@@ -188,7 +188,6 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
             fig_r_html = fig_r.to_html(full_html=False, include_plotlyjs=False)
         except: pass
 
-    # 💡 마크다운(Markdown)의 **굵은 글씨**를 HTML 인쇄에서도 완벽하게 살리도록 수정
     def md_to_html(text):
         t = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
         t = re.sub(r'### (.*)', r'<h3>\1</h3>', t)
@@ -293,17 +292,18 @@ if excel_file and pdf_file and target_major:
             rural_guide = "- **[농어촌 전형 전략]**: 학생의 실제 내신 등급을 파악하여 그에 맞는 맞춤 전략 제시 (우수 학생에게 불필요한 한계점 지적 금지)." if is_rural else ""
             rural_title = "농어촌 전략, " if is_rural else ""
             
+            # 💡 핵심 1: 프롬프트 수정 - 완전한 개괄식(Bullet point) 강제 및 찌꺼기 텍스트 원천 차단
             prompt = f"""
             입시 컨설턴트로서 {target_major} 지망 학생 분석. {rural_status}
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:12000]}), 지식({k_base[:5000]})
             
             [절대 규칙: 가독성 및 형식]
-            1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식 작성.
+            1. **줄글(서술형) 작성 절대 금지.** PART 1부터 4까지 모든 파트의 모든 내용은 반드시 글머리 기호('-' 등)를 활용하여 짧게 끊어치는 '개괄식'으로만 작성할 것. 문단을 통째로 길게 이어서 쓰지 마세요.
             2. 인사말 금지. [PART 1]부터 즉시 시작. 철저한 음슴체(~함, ~임) 사용.
-            3. **[대입 미반영 항목 절대 언급 금지 (매우 중요)]**: '수상 경력', '수상 실적', '자율동아리', '영재학급' 등은 현재 대입에 미반영되므로 장단점 분석, 진단, 보완 전략 등 **모든 파트에서 단 한 글자도 절대 언급하지 마세요.**
-            4. 마지막 두 줄은 반드시 아래 태그여야 함. 반드시 본인 분석 결과와 일치하도록 숫자를 계산할 것.
-               @PIE [교과: X, 종합: Y, 정시: Z] @ (합계 100)
-               @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100)
+            3. **[대입 미반영 항목 절대 언급 금지]**: '수상 경력', '수상 실적', '자율동아리', '영재학급' 등은 현재 대입에 미반영되므로 장단점 분석, 진단, 보완 전략 등 **모든 파트에서 단 한 글자도 절대 언급하지 마세요.**
+            4. **마지막 두 줄 차트 태그 규칙**: 아래 지정된 2줄의 태그만 정확히 출력할 것. 태그 옆이나 아래에 '(합계 100)'이나 '(0~100)' 같은 설명 텍스트를 절대로 덧붙이지 마세요. (숫자만 치환할 것)
+               @PIE [교과: X, 종합: Y, 정시: Z] @
+               @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @
 
             [🔥 전형 추천 및 데이터 종합 판단 원칙]
             1. **교과 vs 종합**: 생기부 기록이 빈약하여 본인이 매긴 @RADAR 점수가 낮다면(75점 이하) 종합전형을 1순위로 추천하지 말고 교과전형 비중(X)을 높일 것.
@@ -317,10 +317,10 @@ if excel_file and pdf_file and target_major:
             - @RADAR 항목별 장단점 분석. (수상 경력 등 대입 미반영 항목 지적 절대 금지)
 
             [PART 2] 대입 전략, {rural_title}생기부 보완, 추천 도서
-            - 전형별 액션 플랜 (개괄식).
+            - 전형별 액션 플랜 (짧은 개괄식).
             {rural_guide}
             - **[생기부 보완 전략]**: 맞춤형 보완책 제시 (미반영 항목 언급 금지).
-            - 추천 도서 3권: 아주 짧고 간결한 선정 이유.
+            - 추천 도서 3권: 도서명과 짧은 이유.
 
             [PART 3] 심화 탐구 및 세특 예시
             - 총 3개 제안. 숫자/세트 번호 금지. 키워드 형식 준수:
@@ -339,9 +339,10 @@ if excel_file and pdf_file and target_major:
     # --- 데이터 후처리 ---
     res = st.session_state.analysis_result
     
+    # 💡 핵심 2: 정규식 고도화 - 태그 뒤에 혹시라도 붙어있는 찌꺼기 텍스트(예: '(합계 100)')까지 그 줄 전체를 깔끔하게 날려버림
     clean_res = res
-    clean_res = re.sub(r'@PIE.*?\]\s*@?', '', clean_res, flags=re.IGNORECASE)
-    clean_res = re.sub(r'@RADAR.*?\]\s*@?', '', clean_res, flags=re.IGNORECASE)
+    clean_res = re.sub(r'@PIE.*?\]\s*@?[^\n]*', '', clean_res, flags=re.IGNORECASE)
+    clean_res = re.sub(r'@RADAR.*?\]\s*@?[^\n]*', '', clean_res, flags=re.IGNORECASE)
     clean_res = clean_res.strip()
 
     p1 = extract_section(clean_res, "PART 1", "PART 2")
@@ -349,7 +350,7 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
-    # 💡 핵심 수정: 줄바꿈 강제 삽입(\n\n) 및 대제목(####)을 굵은 글씨(**)로 변환하여 폰트 크기 및 단락 뭉침 현상 완벽 해결
+    # 가시성 강화 및 줄바꿈 해결
     p2 = re.sub(r'(?i)농어촌\s*전형\s*전략|농어촌\s*전형\s*유불리\s*판단', '\n\n⚖️ **농어촌 전형 전략**', p2)
     p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '\n\n🛠️ **생기부 보완 전략**', p2)
 
