@@ -58,7 +58,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수들 (💡 파트 추출 유연성 강화)
+# 3. 데이터 가공 함수들 (💡 모의고사 열 순서 완벽 교정)
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -75,8 +75,13 @@ def process_performance_data(file_bytes):
     def safe_grade(val):
         try:
             if pd.isna(val): return None
-            m = re.search(r'([1-9])', str(val).strip())
-            return float(m.group(1)) if m else None
+            v_str = str(val).strip()
+            m = re.fullmatch(r'([1-9])(?:\.0)?\s*(?:등급)?', v_str)
+            if m: return float(m.group(1))
+            nums = re.findall(r'\d+', v_str)
+            if len(nums) == 1 and len(nums[0]) == 1 and 1 <= int(nums[0]) <= 9:
+                return float(nums[0])
+            return None
         except: return None
 
     if '학생부현황' in xls.sheet_names:
@@ -88,49 +93,72 @@ def process_performance_data(file_bytes):
                 u_s, w_s = 0, 0
                 for _, row in sub.iterrows():
                     try:
-                        u, r = float(row.iloc[u_c]), str(row.iloc[r_c]).strip()
-                        m = re.search(r'^[1-9]', r)
-                        if m: u_s += u; w_s += (u * float(m.group()))
+                        u = float(row.iloc[u_c])
+                        r_val = safe_grade(row.iloc[r_c])
+                        if r_val is not None:
+                            u_s += u; w_s += (u * r_val)
                     except: continue
                 if u_s > 0: res.append({"학기": f"{int(g)}-{s_idx}", "등급": round(w_s/u_s, 2)})
         i_df = pd.DataFrame(res)
         
     if '수능모의고사' in xls.sheet_names:
-        df_m = pd.read_excel(xls, sheet_name='수능모의고사')
+        df_m_raw = pd.read_excel(xls, sheet_name='수능모의고사', header=None)
         m_res = []
-        for _, row in df_m.iterrows():
+        grade_cols = []
+        
+        for i in range(min(5, len(df_m_raw))):
+            for j, val in enumerate(df_m_raw.iloc[i]):
+                if str(val).strip() == '등급' and j not in grade_cols:
+                    grade_cols.append(j)
+        grade_cols.sort()
+        
+        for _, row in df_m_raw.iterrows():
             try:
                 txt = str(row.iloc[0])
-                g_m = re.search(r'(\d)학년', txt); d_m = re.search(r'\((\d{2})-(\d{2})\)', txt)
+                g_m = re.search(r'(\d)학년', txt)
+                d_m = re.search(r'\((\d{2})-(\d{2})\)', txt)
+                
                 if g_m and d_m:
-                    m_res.append({
-                        "key": int(f"{d_m.group(1)}{d_m.group(2)}"), 
-                        "시험": f"{g_m.group(1)}학년 {d_m.group(2)}월", 
-                        "국어": safe_grade(row.iloc[4]), "수학": safe_grade(row.iloc[8]), 
-                        "영어": safe_grade(row.iloc[10]), "한국사": safe_grade(row.iloc[12]), 
-                        "탐구1": safe_grade(row.iloc[13]) or safe_grade(row.iloc[16]), 
-                        "탐구2": safe_grade(row.iloc[14]) or safe_grade(row.iloc[21])
-                    })
+                    if len(grade_cols) >= 6:
+                        # 💡 핵심 수정: 실제 나이스 엑셀 순서(한국사 -> 국어 -> 수학 -> 영어 -> 탐구1 -> 탐구2)에 맞게 매핑
+                        한국사 = safe_grade(row.iloc[grade_cols[0]])
+                        국어 = safe_grade(row.iloc[grade_cols[1]])
+                        수학 = safe_grade(row.iloc[grade_cols[2]])
+                        영어 = safe_grade(row.iloc[grade_cols[3]])
+                        탐구1 = safe_grade(row.iloc[grade_cols[4]])
+                        탐구2 = safe_grade(row.iloc[grade_cols[5]])
+                    else:
+                        # 혹시 모를 안전장치(Fallback)도 엑셀 열 번호에 맞게 교정
+                        한국사 = safe_grade(row.iloc[1] if len(row) > 1 else None)
+                        국어 = safe_grade(row.iloc[5] if len(row) > 5 else None)
+                        수학 = safe_grade(row.iloc[9] if len(row) > 9 else None)
+                        영어 = safe_grade(row.iloc[10] if len(row) > 10 else None)
+                        탐구1 = safe_grade(row.iloc[14] if len(row) > 14 else None)
+                        탐구2 = safe_grade(row.iloc[18] if len(row) > 18 else None)
+
+                    if any(x is not None for x in [국어, 수학, 영어, 한국사, 탐구1, 탐구2]):
+                        m_res.append({
+                            "key": int(f"{d_m.group(1)}{d_m.group(2)}"), 
+                            "시험": f"{g_m.group(1)}학년 {d_m.group(2)}월", 
+                            "국어": 국어, "수학": 수학, 
+                            "영어": 영어, "한국사": 한국사, 
+                            "탐구1": 탐구1, "탐구2": 탐구2
+                        })
             except: continue
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
 def extract_section(text, start_keyword, end_keyword=None):
-    # 💡 수정 1: AI가 대괄호([ ])를 빼먹거나, ** 기호를 붙여도 안전하게 구역을 추출하도록 유연한 정규식 적용
-    if end_keyword: 
-        pattern = rf"{start_keyword}.*?(?=[^a-zA-Z0-9가-힣]*{end_keyword}|$)"
-    else: 
-        pattern = rf"{start_keyword}.*"
-    
+    if end_keyword: pattern = rf"{start_keyword}.*?(?=[^a-zA-Z0-9가-힣]*{end_keyword}|$)"
+    else: pattern = rf"{start_keyword}.*"
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if not match: return ""
-    
     content = match.group(0).strip()
     content = re.sub(rf"^.*?{start_keyword}.*?(?=\n|$)", "", content, flags=re.IGNORECASE).strip()
     return content
 
 # ==========================================
-# ★ HTML 다운로드 생성기 (컬러 인쇄 보존)
+# ★ HTML 다운로드 생성기
 # ==========================================
 def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
     fig_i_html, fig_m_html, fig_p_html, fig_r_html = "", "", "", ""
@@ -138,7 +166,6 @@ def create_html_report(target_major, p1, p2, p3, p4, res, i_df, m_df):
         fig_i = px.line(i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이", template="plotly")
         fig_i_html = fig_i.to_html(full_html=False, include_plotlyjs='cdn')
     if not m_df.empty:
-        # 💡 수정 2: HTML 인쇄본에서도 모의고사 세로축/범례 라벨을 '등급', '과목'으로 강제 지정
         fig_m = px.line(m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", labels={"value":"등급", "variable":"과목"}, template="plotly")
         fig_m.update_traces(connectgaps=True)
         fig_m_html = fig_m.to_html(full_html=False, include_plotlyjs=False)
@@ -254,7 +281,7 @@ with st.sidebar:
                 sync_knowledge(txt); st.success("동기화 완료!")
 
 # ==========================================
-# 5. 분석 엔진
+# 5. 분석 엔진 
 # ==========================================
 if excel_file and pdf_file and target_major:
     if not st.session_state.analysis_result:
@@ -272,36 +299,33 @@ if excel_file and pdf_file and target_major:
             [절대 규칙: 가독성 및 형식]
             1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식 작성.
             2. 인사말 금지. [PART 1]부터 즉시 시작. 철저한 음슴체(~함, ~임) 사용.
-            3. 마지막 두 줄은 반드시 아래 태그여야 함 (생략 시 오류 발생).
-               단, 예시 숫자를 베끼지 말고 **반드시 본인의 분석 결과와 일치하도록 숫자를 계산**하여 넣을 것.
-               @PIE [교과: X, 종합: Y, 정시: Z] @ (X, Y, Z에는 실제 비율 숫자 기입, 합계 100)
-               @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100 숫자)
+            3. 마지막 두 줄은 반드시 아래 태그여야 함. 반드시 본인 분석 결과와 일치하도록 숫자를 계산할 것.
+               @PIE [교과: X, 종합: Y, 정시: Z] @ (합계 100)
+               @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100)
 
             [🔥 전형 추천 및 데이터 종합 판단 원칙]
-            1. **교과 vs 종합**: 생기부 기록이 빈약하여 본인이 매긴 @RADAR 점수가 낮다면(75점 이하) 절대 종합전형을 1순위로 추천하지 말고, 객관적인 '교과전형'의 비중(X)을 80% 이상으로 압도적으로 높일 것.
-            2. **정시(수능) 전형의 현실적 기준**: 
-               - 국어, 수학, 영어 모의고사 평균 등급이 3등급 이내가 아니면 정시는 현실적으로 불가능하므로 원형 그래프의 추천 비중(Z)을 0~5%로 극히 낮게 잡을 것.
-               - 모의고사 평균 등급이 내신 평균 등급보다 최소 1등급 이상 높지(숫자가 작지) 않다면 정시 전형을 주력으로 추천하지 말고 '수능 최저학력기준 달성 용도'로만 언급할 것.
-            3. **내신 5등급 이하 농어촌 전형의 현실 (가장 중요)**: 내신 평균 등급이 5등급 이하일 경우, 농어촌 전형이라 하더라도 서울/경기권 및 지방거점국립대 합격은 현실적으로 매우 어렵다는 객관적 팩트를 반드시 명시할 것. 헛된 희망이나 긍정적 답변을 주지 말고 냉정한 현실 점검을 포함할 것.
-            
+            1. **교과 vs 종합**: 생기부 기록이 빈약하여 본인이 매긴 @RADAR 점수가 낮다면(75점 이하) 종합전형을 1순위로 추천하지 말고 교과전형 비중(X)을 높일 것.
+            2. **정시(수능) 전형의 현실적 기준**: 평균 3등급 이내가 아니면 추천 비중(Z)을 0~5%로 극히 낮게 잡을 것. 
+            3. **내신 5등급 이하 농어촌 현실**: 농어촌이라 하더라도 5등급 이하의 인서울/지거국 합격은 매우 어렵다는 팩트폭력을 포함할 것.
+            4. **상위권 대학(서연고, 서성한, 중경외시) 종합전형 판정**: 지망 대학이 상위권 대학인 경우 종합전형은 매우 보수적으로 판단할 것. 생기부 내용이 완벽하지 않다면 @RADAR의 점수를 엄격하게 부여하고, @PIE에서 종합전형 비중을 낮게 책정할 것.
+
             [작성 가이드]
             [PART 1] 종합 진단
             - 내신/모의고사 등급 분석 (수치 기반)
-            - **방사형 그래프(@RADAR)의 각 항목 점수를 바탕으로, 현재 생기부의 장점과 단점을 개괄식으로 명확히 작성할 것.** (세특 누락/부실 지적은 제외)
+            - @RADAR 항목별 장단점 분석.
 
             [PART 2] 대입 전략, 농어촌 전략, 생기부 보완, 추천 도서
-            - 전형별 액션 플랜 (개괄식): 교과전형, 종합전형 등의 제목에서 '(농어촌)' 표기를 삭제할 것. 농어촌 관련 특이사항은 해당 전형 하위 항목에 자연스럽게 포함하여 분석할 것.
-            - **[농어촌 전형 전략 (주의!)]**: 농어촌 전형은 매년 입결 컷 변동성이 매우 큼. 무조건 유리하다고 단정 금지. 특히 내신 평균 5등급 이하인 경우 서울/수도권 및 지거국 진학은 농어촌으로도 사실상 매우 어렵다는 점을 객관적으로 팩트폭력 할 것. 안정/적정 지원은 눈높이를 낮춘 지방 사립/전문대 등 현실적 대안이 포함된 일반 전형으로 고려하고, 농어촌은 헛된 희망을 주지 않는 선에서만 전략적 조커로 활용하도록 가이드할 것.
-            - **[생기부 보완 전략]**: 학생의 현재 생기부에서 누락되거나 빈약한 부분을 정확히 짚고, 어떤 구체적 활동이나 보고서로 채워야 할지 맞춤형 보완책 제시. (단, 대입에 미반영되는 '수상 경력', '자율동아리' 등은 절대 언급하지 말 것)
-            - 추천 도서 3권: 도서명과 함께 선정 이유를 '1문장으로 아주 짧고 간결하게' 작성.
+            - 전형별 액션 플랜 (개괄식). '(농어촌)' 표기 삭제.
+            - **[농어촌 전형 전략]**: 내신 5등급 이하일 경우 농어촌 조커 활용의 한계를 냉정하게 팩트폭력 할 것.
+            - **[생기부 보완 전략]**: 맞춤형 보완책 제시 (미반영 항목 언급 금지).
+            - 추천 도서 3권: 아주 짧고 간결한 선정 이유.
 
             [PART 3] 심화 탐구 및 세특 예시
-            - 총 3개의 심화 탐구를 제안하되, **'1세트', '2세트' 같은 세트 번호나 각 항목 앞의 숫자(1, 2, 3, 4 등)를 절대 쓰지 말 것.** - **각 항목(주제, 근거, 방법, 예시) 사이에는 반드시 줄바꿈을 두어 가독성을 극대화할 것.**
-            - 반드시 아래 키워드 형식 그대로 순서에 맞춰 3번 반복 작성할 것:
-            주제: (심화 탐구 주제)
-            종적/횡적 근거: (생기부에서 'X학년 X학기 OO활동' 등 구체적 출처 반드시 인용)
-            탐구 방법: (위 주제를 어떻게 탐구할 것인지 구체적인 액션 플랜)
-            세특 예시: (위 탐구 방법을 수행했을 때 기재될 수 있는 좋은 세특 예시 문구, 200자 내외)
+            - 총 3개 제안. 숫자/세트 번호 금지. 키워드 형식 준수:
+            주제: 
+            종적/횡적 근거: 
+            탐구 방법: 
+            세특 예시: 
 
             [PART 4] 면접 예상 질문
             - 질문 3개: 질문: / 모범 답안: / 준비 방법:
@@ -318,7 +342,7 @@ if excel_file and pdf_file and target_major:
     p3 = extract_section(clean_res, "PART 3", "PART 4")
     p4 = extract_section(clean_res, "PART 4")
 
-    # 가시성 강화 변환 (아이콘 추가 및 💡 강제 줄바꿈 삽입)
+    # 가시성 강화 및 줄바꿈 해결
     p2 = re.sub(r'(?i)농어촌\s*전형\s*전략|농어촌\s*전형\s*유불리\s*판단', '⚖️ **농어촌 전형 전략**', p2)
     p2 = re.sub(r'(?i)생기부\s*보완\s*전략', '🛠️ **생기부 보완 전략**', p2)
 
@@ -327,21 +351,19 @@ if excel_file and pdf_file and target_major:
     p3 = re.sub(r'(?i)탐구\s*방법\s*:', '\n🛠️ **탐구 방법:**', p3)
     p3 = re.sub(r'(?i)세특\s*예시\s*:', '\n✍️ **세특 예시:**', p3)
     
-    p4 = re.sub(r'(?i)질문\s*:', '#### ❓ 질문:', p4)
-    p4 = re.sub(r'(?i)모범\s*답안\s*:', '✅ **모범 답안:**', p4)
-    p4 = re.sub(r'(?i)준비\s*방법\s*:', '🛠️ **준비 방법:**', p4)
+    p4 = re.sub(r'(?i)질문\s*:', '\n#### ❓ 질문:', p4)
+    p4 = re.sub(r'(?i)모범\s*답안\s*:', '\n✅ **모범 답안:**\n', p4)
+    p4 = re.sub(r'(?i)준비\s*방법\s*:', '\n🛠️ **준비 방법:**\n', p4)
 
     # --- 차트 렌더링 함수 ---
     def render_all_charts(suffix):
         c1, c2 = st.columns(2); c3, c4 = st.columns(2)
         if not st.session_state.i_df.empty:
-            c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이", labels={"등급":"등급"}), use_container_width=True, key=f"i_{suffix}")
+            c1.plotly_chart(px.line(st.session_state.i_df, x="학기", y="등급", markers=True, range_y=[9, 1], title="내신 등급 추이"), use_container_width=True, key=f"i_{suffix}")
         if not st.session_state.m_df.empty:
-            # 💡 수정 3: 화면 렌더링용 모의고사 그래프 세로축/범례 라벨 강제 지정
             fig_m = px.line(st.session_state.m_df, x="시험", y=["국어", "수학", "영어", "한국사", "탐구1", "탐구2"], markers=True, range_y=[9, 1], title="모의고사 등급 추이", labels={"value":"등급", "variable":"과목"})
             fig_m.update_traces(connectgaps=True)
             c2.plotly_chart(fig_m, use_container_width=True, key=f"m_{suffix}")
-        
         p_match = re.search(r'@PIE\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if p_match:
             try:
@@ -349,8 +371,7 @@ if excel_file and pdf_file and target_major:
                 p_items = [it for it in p_items if len(it) >= 2]
                 p_df = pd.DataFrame([{"전형": it[0].strip(), "비중": int(re.sub(r'[^0-9]', '', it[1]) or 0)} for it in p_items])
                 c3.plotly_chart(px.pie(p_df, values="비중", names="전형", hole=0.4, title="추천 전형 비율"), use_container_width=True, key=f"p_{suffix}")
-            except: c3.warning("전형 차트 데이터 형식 오류")
-        
+            except: pass
         r_match = re.search(r'@RADAR\s*\[(.*?)\]\s*@', res, re.IGNORECASE)
         if r_match:
             try:
@@ -361,7 +382,7 @@ if excel_file and pdf_file and target_major:
                 fig_r = go.Figure(data=go.Scatterpolar(r=r_values + [r_values[0]], theta=r_labels + [r_labels[0]], fill='toself'))
                 fig_r.update_layout(polar=dict(radialaxis=dict(visible=True, range=[0, 100])), title="생기부 종합 역량 진단")
                 c4.plotly_chart(fig_r, use_container_width=True, key=f"r_{suffix}")
-            except: c4.warning("역량 차트 데이터 형식 오류")
+            except: pass
 
     # --- 탭 구성 ---
     tab1, tab2, tab3, tab4 = st.tabs(["📊 진단 및 전략", "💡 탐구/면접 가이드", "💬 실시간 상담", "🖨️ 리포트 인쇄"])
@@ -389,16 +410,6 @@ if excel_file and pdf_file and target_major:
                 st.session_state.chat_history.append({"role": "assistant", "content": ans.text})
 
     with tab4:
-        st.markdown("""
-        <div class="no-print" style="padding: 15px; background-color: #f8f9fa; border-radius: 8px; border: 2px solid #1a73e8; margin-bottom: 20px;">
-            <h3 style="margin-top: 0; color: #1a73e8;">🖨️ 완벽 인쇄를 위한 HTML 다운로드</h3>
-            <p style="margin-bottom: 10px; font-size: 15px; color: #333;">스트림릿 화면 인쇄 시 1페이지만 출력되는 문제를 해결하기 위해 <b>그래프가 모두 포함된 HTML 파일 다운로드</b> 기능을 제공합니다.</p>
-            <p style="margin-bottom: 5px; font-size: 14px; color: #d93025; font-weight: bold;">[사용 방법]</p>
-            <p style="margin-bottom: 0; font-size: 14px; color: #555;">1. 아래 버튼을 눌러 HTML 파일을 다운로드합니다.<br>2. 다운로드된 파일을 더블클릭하여 크롬(Chrome) 브라우저로 엽니다.<br>3. 키보드 <b>Ctrl + P</b>를 누르면 <b>잘림 없이 완벽하게 인쇄</b>됩니다.</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # HTML 다운로드 버튼 추가
         html_data = create_html_report(target_major, p1, p2, p3, p4, res, st.session_state.i_df, st.session_state.m_df)
         st.download_button(
             label="📄 완벽 인쇄용 HTML 다운로드",
