@@ -58,7 +58,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 3. 데이터 가공 함수들 (모의고사 V75 유지)
+# 3. 데이터 가공 함수들
 # ==========================================
 def sync_knowledge(new_content=None):
     try:
@@ -141,7 +141,6 @@ def process_performance_data(file_bytes):
         m_df = pd.DataFrame(m_res).sort_values("key").drop(columns="key") if m_res else pd.DataFrame()
     return i_df, m_df
 
-# 💡 핵심 수정 1: AI가 기호를 빼먹거나 변형해도 완벽하게 파트 구간을 도려내는 초강력 추출기
 def extract_section(text, start_keyword, end_keyword=None):
     s_pat = start_keyword.replace(" ", r"\s*")
     if end_keyword: 
@@ -153,7 +152,6 @@ def extract_section(text, start_keyword, end_keyword=None):
     match = re.search(pattern, text, re.DOTALL | re.IGNORECASE)
     if not match: return ""
     content = match.group(1).strip()
-    # 꼬리 부분에 남는 불필요한 마크다운 기호 제거
     content = re.sub(r"[^a-zA-Z0-9가-힣]*$", "", content).strip()
     return content
 
@@ -290,33 +288,38 @@ if excel_file and pdf_file and target_major:
             with pdfplumber.open(pdf_file) as p: pdf_text = "".join([pg.extract_text() for pg in p.pages])
             k_base = sync_knowledge()
             
-            rural_inst = "이 학생은 [농어촌 전형] 대상자임." if is_rural else ""
+            # 💡 V44 핵심: 수상경력 절대 금지 추가 및 농어촌 조건부 맞춤 지시 강화
+            rural_status = "이 학생은 [농어촌 전형] 대상자임." if is_rural else "이 학생은 일반 전형 대상자임. 농어촌 전형과 관련된 멘트는 절대 언급하지 말 것."
+            rural_rule = "3. **농어촌 전형 맞춤 판단**: 제공된 내신(i_df) 데이터를 확인하여 학생의 등급이 평균 5등급 이하일 때만 합격의 한계를 경고(팩트폭력)하고, 4등급 이상의 우수한 학생에게는 5등급 이하용 경고 멘트를 절대 쓰지 말고 강점을 살린 상향 지원 전략을 세울 것." if is_rural else ""
+            rural_guide = "- **[농어촌 전형 전략]**: 학생의 실제 내신 등급을 파악하여 그에 맞는 맞춤 전략 제시 (우수 학생에게 불필요한 한계점 지적 금지)." if is_rural else ""
+            rural_title = "농어촌 전략, " if is_rural else ""
             
             prompt = f"""
-            입시 컨설턴트로서 {target_major} 지망 학생 분석. {rural_inst}
+            입시 컨설턴트로서 {target_major} 지망 학생 분석. {rural_status}
             데이터: 내신({i_df.to_string()}), 모의고사({m_df.to_string()}), 생기부({pdf_text[:12000]}), 지식({k_base[:5000]})
             
             [절대 규칙: 가독성 및 형식]
             1. **줄글 작성 절대 금지.** 모든 내용은 반드시 글머리 기호('-' 또는 '1.', '2.')를 사용한 개괄식 작성.
             2. 인사말 금지. [PART 1]부터 즉시 시작. 철저한 음슴체(~함, ~임) 사용.
-            3. 마지막 두 줄은 반드시 아래 태그여야 함. 반드시 본인 분석 결과와 일치하도록 숫자를 계산할 것.
+            3. **[대입 미반영 항목 절대 언급 금지 (매우 중요)]**: '수상 경력', '수상 실적', '자율동아리', '영재학급' 등은 현재 대입에 미반영되므로 장단점 분석, 진단, 보완 전략 등 **모든 파트에서 단 한 글자도 절대 언급하지 마세요.** (예: "수상 실적이 없어 아쉬움" 같은 멘트는 오류입니다.)
+            4. 마지막 두 줄은 반드시 아래 태그여야 함. 반드시 본인 분석 결과와 일치하도록 숫자를 계산할 것.
                @PIE [교과: X, 종합: Y, 정시: Z] @ (합계 100)
                @RADAR [전공적합성: A, 학업역량: B, 진로탐색: C, 리더십/인성: D, 발전가능성: E] @ (0~100)
 
             [🔥 전형 추천 및 데이터 종합 판단 원칙]
             1. **교과 vs 종합**: 생기부 기록이 빈약하여 본인이 매긴 @RADAR 점수가 낮다면(75점 이하) 종합전형을 1순위로 추천하지 말고 교과전형 비중(X)을 높일 것.
             2. **정시(수능) 전형의 현실적 기준**: 평균 3등급 이내가 아니면 추천 비중(Z)을 0~5%로 극히 낮게 잡을 것. 
-            3. **내신 5등급 이하 농어촌 현실**: 농어촌이라 하더라도 5등급 이하의 인서울/지거국 합격은 매우 어렵다는 팩트폭력을 포함할 것.
+            {rural_rule}
             4. **상위권 대학(서연고, 서성한, 중경외시) 종합전형 판정**: 지망 대학이 상위권 대학인 경우 종합전형은 매우 보수적으로 판단할 것. 생기부 내용이 완벽하지 않다면 @RADAR의 점수를 엄격하게 부여하고, @PIE에서 종합전형 비중을 낮게 책정할 것.
 
             [작성 가이드]
             [PART 1] 종합 진단
             - 내신/모의고사 등급 분석 (수치 기반)
-            - @RADAR 항목별 장단점 분석.
+            - @RADAR 항목별 장단점 분석. (수상 경력 등 대입 미반영 항목 지적 절대 금지)
 
-            [PART 2] 대입 전략, 농어촌 전략, 생기부 보완, 추천 도서
-            - 전형별 액션 플랜 (개괄식). '(농어촌)' 표기 삭제.
-            - **[농어촌 전형 전략]**: 내신 5등급 이하일 경우 농어촌 조커 활용의 한계를 냉정하게 팩트폭력 할 것.
+            [PART 2] 대입 전략, {rural_title}생기부 보완, 추천 도서
+            - 전형별 액션 플랜 (개괄식).
+            {rural_guide}
             - **[생기부 보완 전략]**: 맞춤형 보완책 제시 (미반영 항목 언급 금지).
             - 추천 도서 3권: 아주 짧고 간결한 선정 이유.
 
@@ -337,7 +340,6 @@ if excel_file and pdf_file and target_major:
     # --- 데이터 후처리 ---
     res = st.session_state.analysis_result
     
-    # 💡 핵심 수정 2: 정규식의 폭식을 막고 오직 차트 데이터 태그만 정확하게 소거
     clean_res = res
     clean_res = re.sub(r'@PIE.*?\]\s*@?', '', clean_res, flags=re.IGNORECASE)
     clean_res = re.sub(r'@RADAR.*?\]\s*@?', '', clean_res, flags=re.IGNORECASE)
